@@ -63,6 +63,32 @@ void CXhcMpg::handleEvent()
 	while (m_events.begin() != m_events.end()) {
 		auto event = m_events.begin();
 		switch (event->eventof()) {
+		case btnStop:
+			mcCntlCycleStop(m_ipc);
+			break;
+		case btnStartPause:
+		{
+			BOOL cycle;
+			if (mcCntlIsInCycle(m_ipc, &cycle) == 0) {
+				if (!cycle)
+					mcCntlCycleStart(m_ipc);
+				else
+					mcCntlCycleStop(m_ipc);
+			}
+		}
+		break;
+		case btnReset:
+			mcCntlReset(m_ipc);
+			break;
+		case btnRewind:
+			mcCntlRewindFile(m_ipc);
+			break;
+		case btnGotoZero:
+			mcCntlGotoZero(m_ipc);
+			break;
+		case btnGotoHome:
+			mcAxisHomeAll(m_ipc);
+			break;
 		case adjustX:
 			//			mcJogIncStart(0, 0, event->valueof());
 			break;
@@ -93,7 +119,7 @@ void CXhcMpg::updateState()
 	s.sspeed_ovr((unsigned int)abs((int)x));
 
 	mcSpindleGetMotorRPM(m_ipc, &x);
-	s.sspeed((unsigned int) abs((int)x));
+	s.sspeed((unsigned int)abs((int)x));
 
 	mcCntlGetFRO(m_ipc, &x);
 	s.feedrate_ovr((unsigned int)abs((int)x));
@@ -233,8 +259,8 @@ CXhcDeviceAgent::CXhcDeviceAgent(const CXhcDevice& device, CXhcDeviceEventReceiv
 	m_worker = std::thread(Fagent, this);
 }
 
-#define _defract(c) { (uint16_t) abs(c), (uint8_t) (((uint8_t) ((c - (long)c)*100.0)) | (c < 0 ? 0x80 : 0))}
-#define _defract2(c) { (uint16_t) abs(c), (uint16_t) (((uint16_t) ((c - (long)c)*10000.0)) | (c < 0 ? 0x8000 : 0)) }
+#define _defract(c) { (uint16_t) abs(c), (uint8_t) (((uint8_t) abs((c - (long)c)*100.0)) | (c < 0 ? 0x80 : 0))}
+#define _defract2(c) { (uint16_t) abs(c), (uint16_t) (((uint16_t) abs((c - (long)c)*10000.0)) | (c < 0 ? 0x8000 : 0)) }
 
 void CXhcDeviceAgent::update(const CM4otionState& s)
 {
