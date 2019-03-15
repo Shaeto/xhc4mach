@@ -8,68 +8,47 @@
 #include "afxdialogex.h"
 #include <devguid.h>
 #include <dbt.h>
+#include <string>
+#include <list>
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
 #endif
 
-
-// CAboutDlg dialog used for App About
-
-class CAboutDlg : public CDialogEx
-{
-public:
-	CAboutDlg();
-
-// Dialog Data
-#ifdef AFX_DESIGN_TIME
-	enum { IDD = IDD_ABOUTBOX };
-#endif
-
-	protected:
-	virtual void DoDataExchange(CDataExchange* pDX);    // DDX/DDV support
-
-// Implementation
-protected:
-	DECLARE_MESSAGE_MAP()
-};
-
-CAboutDlg::CAboutDlg() : CDialogEx(IDD_ABOUTBOX)
-{
-}
-
-void CAboutDlg::DoDataExchange(CDataExchange* pDX)
-{
-	CDialogEx::DoDataExchange(pDX);
-}
-
-BEGIN_MESSAGE_MAP(CAboutDlg, CDialogEx)
-END_MESSAGE_MAP()
-
-
 // CXhcMpgDlg dialog
 
-BEGIN_DHTML_EVENT_MAP(CXhcMpgDlg)
-	DHTML_EVENT_ONCLICK(_T("ButtonOK"), OnButtonOK)
-	DHTML_EVENT_ONCLICK(_T("ButtonCancel"), OnButtonCancel)
-END_DHTML_EVENT_MAP()
-
-
 CXhcMpgDlg::CXhcMpgDlg(CWnd* pParent /*=nullptr*/)
-	: CDHtmlDialog(IDD_XHC4MACH_DIALOG, IDR_HTML_XHC4MACH_DIALOG, pParent)
+	: CDialogEx(IDD_XHC4MACH_DIALOG, pParent)
 {
-	m_hIcon = AfxGetApp()->LoadIcon(IDR_MAINFRAME);
+	m_hIcon = AfxGetApp()->LoadIcon(IDI_MAINFRAME);
 	m_hUsbDevNotify = 0;
 }
 
 void CXhcMpgDlg::DoDataExchange(CDataExchange* pDX)
 {
-	CDHtmlDialog::DoDataExchange(pDX);
+	CDialogEx::DoDataExchange(pDX);
+	DDX_Control(pDX, IDC_XHC_LIST, m_xhcListBox);
+	DDX_Control(pDX, IDC_MACH4_CONNECT, m_btnMuch4Connect);
+	DDX_Control(pDX, IDC_MACH4_DISCONNECT, m_btnMuch4Disconnect);
+	DDX_Control(pDX, IDC_MC_POS_AXIS_A, m_editMCPosAxisA);
+	DDX_Control(pDX, IDC_MC_POS_AXIS_Y, m_editMCPosAxisY);
+	DDX_Control(pDX, IDC_MC_POS_AXIS_X, m_editMCPosAxisX);
+	DDX_Control(pDX, IDC_MC_POS_AXIS_Z, m_editMCPosAxisZ);
+	DDX_Control(pDX, IDC_WC_POS_AXIS_A, m_editWCPosAxisA);
+	DDX_Control(pDX, IDC_WC_POS_AXIS_Y, m_editWCPosAxisY);
+	DDX_Control(pDX, IDC_WC_POS_AXIS_X, m_editWCPosAxisX);
+	DDX_Control(pDX, IDC_WC_POS_AXIS_Z, m_editWCPosAxisZ);
 }
 
-BEGIN_MESSAGE_MAP(CXhcMpgDlg, CDHtmlDialog)
+BEGIN_MESSAGE_MAP(CXhcMpgDlg, CDialogEx)
 	ON_WM_SYSCOMMAND()
 	ON_WM_DEVICECHANGE()
+	ON_BN_CLICKED(IDC_CLOSE, &CXhcMpgDlg::OnBnClickedClose)
+	ON_MESSAGE(WM_MPG_LIST_CHANGED, OnMpgListChanged)
+	ON_MESSAGE(WM_MPG_STATE_CHANGED, OnMpgStateChanged)
+	ON_MESSAGE(WM_MPG_MACH4_STATUS, OnMpgMach4Status)
+	ON_BN_CLICKED(IDC_MACH4_CONNECT, &CXhcMpgDlg::OnClickedMach4Connect)
+	ON_BN_CLICKED(IDC_MACH4_DISCONNECT, &CXhcMpgDlg::OnClickedMach4Disconnect)
 END_MESSAGE_MAP()
 
 
@@ -77,34 +56,16 @@ END_MESSAGE_MAP()
 
 BOOL CXhcMpgDlg::OnInitDialog()
 {
-	CDHtmlDialog::OnInitDialog();
-
-	// Add "About..." menu item to system menu.
-
-	// IDM_ABOUTBOX must be in the system command range.
-	ASSERT((IDM_ABOUTBOX & 0xFFF0) == IDM_ABOUTBOX);
-	ASSERT(IDM_ABOUTBOX < 0xF000);
-
-	CMenu* pSysMenu = GetSystemMenu(FALSE);
-	if (pSysMenu != nullptr)
-	{
-		BOOL bNameValid;
-		CString strAboutMenu;
-		bNameValid = strAboutMenu.LoadString(IDS_ABOUTBOX);
-		ASSERT(bNameValid);
-		if (!strAboutMenu.IsEmpty())
-		{
-			pSysMenu->AppendMenu(MF_SEPARATOR);
-			pSysMenu->AppendMenu(MF_STRING, IDM_ABOUTBOX, strAboutMenu);
-		}
-	}
+	CDialogEx::OnInitDialog();
 
 	// Set the icon for this dialog.  The framework does this automatically
 	//  when the application's main window is not a dialog
 	SetIcon(m_hIcon, TRUE);			// Set big icon
 	SetIcon(m_hIcon, FALSE);		// Set small icon
 
-	// TODO: Add extra initialization here
+	m_btnMuch4Connect.EnableWindow(TRUE);
+	m_btnMuch4Disconnect.EnableWindow(FALSE);
+
 	DEV_BROADCAST_DEVICEINTERFACE NotificationFilter;
 
 	ZeroMemory(&NotificationFilter, sizeof(NotificationFilter));
@@ -112,8 +73,8 @@ BOOL CXhcMpgDlg::OnInitDialog()
 	NotificationFilter.dbcc_devicetype = DBT_DEVTYP_DEVICEINTERFACE;
 	NotificationFilter.dbcc_classguid = GUID_DEVCLASS_HIDCLASS;
 
-	m_hUsbDevNotify = RegisterDeviceNotification(m_hWnd, &NotificationFilter, DEVICE_NOTIFY_WINDOW_HANDLE);
-	m_mpg.open();
+	m_hUsbDevNotify = RegisterDeviceNotification(GetSafeHwnd(), &NotificationFilter, DEVICE_NOTIFY_WINDOW_HANDLE);
+	m_mpg.open(GetSafeHwnd());
 
 	return TRUE;  // return TRUE  unless you set the focus to a control
 }
@@ -129,17 +90,72 @@ BOOL CXhcMpgDlg::OnDeviceChange(UINT nEventType, DWORD dwData)
 	return bReturn;
 }
 
-void CXhcMpgDlg::OnSysCommand(UINT nID, LPARAM lParam)
+LRESULT CXhcMpgDlg::OnMpgListChanged(WPARAM wParam, LPARAM lParam)
 {
-	if ((nID & 0xFFF0) == IDM_ABOUTBOX)
-	{
-		CAboutDlg dlgAbout;
-		dlgAbout.DoModal();
+	UNREFERENCED_PARAMETER(wParam);
+	UNREFERENCED_PARAMETER(lParam);
+
+	std::list<std::wstring> list = m_mpg.devices();
+
+	m_xhcListBox.ResetContent();
+	for (const auto& s : list) {
+		m_xhcListBox.AddString(s.c_str());
 	}
-	else
-	{
-		CDHtmlDialog::OnSysCommand(nID, lParam);
+
+	return 0;
+}
+
+afx_msg LRESULT CXhcMpgDlg::OnMpgStateChanged(WPARAM wParam, LPARAM lParam)
+{
+	UNREFERENCED_PARAMETER(wParam);
+	UNREFERENCED_PARAMETER(lParam);
+
+	wchar_t buf[128];
+
+	CM4otionState s = m_mpg.state();
+
+	_snwprintf_s(buf, sizeof(buf), _T("%.5f"), s.mc(AXIS_X));
+	m_editMCPosAxisX.SetWindowText(buf);
+
+	_snwprintf_s(buf, sizeof(buf), _T("%.5f"), s.mc(AXIS_Y));
+	m_editMCPosAxisY.SetWindowText(buf);
+
+	_snwprintf_s(buf, sizeof(buf), _T("%.5f"), s.mc(AXIS_Z));
+	m_editMCPosAxisZ.SetWindowText(buf);
+
+	_snwprintf_s(buf, sizeof(buf), _T("%.5f"), s.mc(AXIS_A));
+	m_editMCPosAxisA.SetWindowText(buf);
+
+	_snwprintf_s(buf, sizeof(buf), _T("%.5f"), s.wc(AXIS_X));
+	m_editWCPosAxisX.SetWindowText(buf);
+
+	_snwprintf_s(buf, sizeof(buf), _T("%.5f"), s.wc(AXIS_Y));
+	m_editWCPosAxisY.SetWindowText(buf);
+
+	_snwprintf_s(buf, sizeof(buf), _T("%.5f"), s.wc(AXIS_Z));
+	m_editWCPosAxisZ.SetWindowText(buf);
+
+	_snwprintf_s(buf, sizeof(buf), _T("%.5f"), s.wc(AXIS_A));
+	m_editWCPosAxisA.SetWindowText(buf);
+
+	return 0;
+}
+
+LRESULT CXhcMpgDlg::OnMpgMach4Status(WPARAM wParam, LPARAM lParam)
+{
+	UNREFERENCED_PARAMETER(wParam);
+	UNREFERENCED_PARAMETER(lParam);
+
+	if (wParam) {
+		m_btnMuch4Connect.EnableWindow(FALSE);
+		m_btnMuch4Disconnect.EnableWindow(TRUE);
 	}
+	else {
+		m_btnMuch4Connect.EnableWindow(TRUE);
+		m_btnMuch4Disconnect.EnableWindow(FALSE);
+	}
+
+	return 0;
 }
 
 // If you add a minimize button to your dialog, you will need the code below
@@ -167,7 +183,7 @@ void CXhcMpgDlg::OnPaint()
 	}
 	else
 	{
-		CDHtmlDialog::OnPaint();
+		CDialogEx::OnPaint();
 	}
 }
 
@@ -178,19 +194,6 @@ HCURSOR CXhcMpgDlg::OnQueryDragIcon()
 	return static_cast<HCURSOR>(m_hIcon);
 }
 
-HRESULT CXhcMpgDlg::OnButtonOK(IHTMLElement* /*pElement*/)
-{
-	OnOK();
-	return S_OK;
-}
-
-HRESULT CXhcMpgDlg::OnButtonCancel(IHTMLElement* /*pElement*/)
-{
-	OnCancel();
-	return S_OK;
-}
-
-
 BOOL CXhcMpgDlg::DestroyWindow()
 {
 	// TODO: Add your specialized code here and/or call the base class
@@ -199,5 +202,23 @@ BOOL CXhcMpgDlg::DestroyWindow()
 	}
 	m_mpg.close();
 
-	return CDHtmlDialog::DestroyWindow();
+	return CDialogEx::DestroyWindow();
+}
+
+
+void CXhcMpgDlg::OnBnClickedClose()
+{
+	EndDialog(0);
+}
+
+
+void CXhcMpgDlg::OnClickedMach4Connect()
+{
+	m_mpg.open(GetSafeHwnd());
+}
+
+
+void CXhcMpgDlg::OnClickedMach4Disconnect()
+{
+	m_mpg.close();
 }

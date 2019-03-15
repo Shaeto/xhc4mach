@@ -1,4 +1,6 @@
 #pragma once
+
+#include <windows.h>
 #include <thread>
 #include <mutex>
 #include "sema.h"
@@ -7,12 +9,25 @@
 #include <string>
 #include <tuple>
 
+#define WM_MPG_LIST_CHANGED (WM_APP + 1)
+#define WM_MPG_STATE_CHANGED (WM_APP + 2)
+#define WM_MPG_MACH4_STATUS (WM_APP + 3)
+
 #define AXIS_X 0
 #define AXIS_Y 1
 #define AXIS_Z 2
 #define AXIS_A 3
 
 #define SV_FEEDRATE 2134
+
+#define OSIG_MACHINE_ENABLED 1120
+#define OSIG_JOG_INC 1125
+#define OSIG_JOG_CONT 1126
+#define OSIG_JOG_ENABLED 1127
+#define OSIG_JOG_MPG 1128
+
+#define MC_JOG_POS 1.0
+#define MC_JOG_NEG -1.0
 
 enum XHC_DEV_EVENT {
 	nop,
@@ -74,13 +89,29 @@ private:
 	int m_value;
 };
 
+enum XHC_WHEEL_MODE {
+	WHEEL_OFF,
+	WHEEL_X,
+	WHEEL_Y,
+	WHEEL_Z,
+	WHEEL_A,
+	WHEEL_SPINDLE,
+	WHEEL_FEED,
+	WHEEL_PROC
+};
+
+enum XHC_UNITS_MODE {
+	UNITS_MM,
+	UNITS_INCH
+};
+
 class CM4otionState {
 public:
 	CM4otionState() {
 		m_mc_valid = false;
-		m_mc[4] = ( 0, 0, 0, 0 );
+		m_mc[4] = (0, 0, 0, 0);
 		m_wc_valid = false;
-		m_wc[4] = ( 0, 0, 0, 0 );
+		m_wc[4] = (0, 0, 0, 0);
 
 		m_feedrate_ovr_valid = false;
 		m_feedrate_ovr = 0;
@@ -90,6 +121,12 @@ public:
 		m_feedrate = 0;
 		m_sspeed_valid = false;
 		m_sspeed = 0;
+
+		m_step_mul_valid = false;
+		m_step_mul = 0;
+
+		m_units_valid = false;
+		m_units = UNITS_MM;
 	}
 
 	void mc(double x, double y, double z, double a) {
@@ -141,40 +178,86 @@ public:
 	bool step_mul_valid() const { return m_step_mul_valid; }
 	unsigned int step_mul() const { return m_step_mul; }
 	void step_mul(unsigned int v) {
-		m_step_mul_valid = true;
-		m_step_mul = v;
+		unsigned int num_steps = (sizeof(allowed_steps) / sizeof(allowed_steps[0]));
+		for (unsigned int i = 0; i < num_steps; i++) {
+			if (v == allowed_steps[i]) {
+				m_step_mul_valid = true;
+				m_step_mul = v;
+				break;
+			}
+		}
 	}
 
-	bool state_valid() const { return m_state_valid; }
-	unsigned int state() const { return m_state; }
-	void state(unsigned int v) {
-		m_state_valid = true;
-		m_state = v;
+	void step_mul_up() {
+		unsigned int num_steps = (sizeof(allowed_steps) / sizeof(allowed_steps[0]));
+		for (unsigned int i = 0; i < num_steps; i++) {
+			if (m_step_mul == allowed_steps[i]) {
+				m_step_mul_valid = true;
+				m_step_mul = allowed_steps[(i + 1) % num_steps];
+				break;
+			}
+		}
 	}
 
-	void update(const CM4otionState& that) {
-		if (that.mc_valid()) {
+	void step_mul_down() {
+		unsigned int num_steps = (sizeof(allowed_steps) / sizeof(allowed_steps[0]));
+		for (unsigned int i = 0; i < num_steps; i++) {
+			if (m_step_mul == allowed_steps[i]) {
+				m_step_mul_valid = true;
+				m_step_mul = allowed_steps[(i - 1) % num_steps];
+				break;
+			}
+		}
+	}
+
+	bool units_valid() const { return m_units_valid; }
+	XHC_UNITS_MODE units() const { return m_units; }
+	void units(XHC_UNITS_MODE v) {
+		m_units_valid = true;
+		m_units = v;
+	}
+
+	bool update(const CM4otionState& that) {
+		bool updated = false;
+		if (that.mc_valid() && (mc(AXIS_X) != that.mc(AXIS_X) || mc(AXIS_Y) != that.mc(AXIS_Y) || mc(AXIS_Z) != that.mc(AXIS_Z) || mc(AXIS_A) != that.mc(AXIS_A))) {
 			mc(that.m_mc[AXIS_X], that.m_mc[AXIS_Y], that.m_mc[AXIS_Z], that.m_mc[AXIS_A]);
+			updated = true;
 		}
-		if (that.wc_valid()) {
+		if (that.wc_valid() && (wc(AXIS_X) != that.wc(AXIS_X) || wc(AXIS_Y) != that.wc(AXIS_Y) || wc(AXIS_Z) != that.wc(AXIS_Z) || wc(AXIS_A) != that.wc(AXIS_A))) {
 			wc(that.m_wc[AXIS_X], that.m_wc[AXIS_Y], that.m_wc[AXIS_Z], that.m_wc[AXIS_A]);
+			updated = true;
 		}
 
-		if (that.feedrate_ovr_valid())
+		if (that.feedrate_ovr_valid() && feedrate_ovr() != that.feedrate_ovr()) {
 			feedrate_ovr(that.feedrate_ovr());
-		if (that.feedrate())
+			updated = true;
+		}
+
+		if (that.feedrate() && feedrate() != that.feedrate()) {
 			feedrate(that.feedrate());
+			updated = true;
+		}
 
-		if (that.sspeed_ovr_valid())
+		if (that.sspeed_ovr_valid() && sspeed_ovr() != that.sspeed_ovr()) {
 			sspeed_ovr(that.sspeed_ovr());
-		if (that.sspeed_valid())
+			updated = true;
+		}
+
+		if (that.sspeed_valid() && sspeed() != that.sspeed()) {
 			sspeed(that.sspeed());
+			updated = true;
+		}
 
-		if (that.state_valid())
-			state(that.state());
+		if (that.units_valid() && units() != that.units()) {
+			units(that.units());
+			updated = true;
+		}
 
-		if (that.step_mul_valid())
+		if (that.step_mul_valid() && step_mul() != that.step_mul()) {
 			step_mul(that.step_mul());
+			updated = true;
+		}
+		return updated;
 	}
 
 protected:
@@ -200,19 +283,10 @@ private:
 	bool m_step_mul_valid;
 	unsigned int m_step_mul;
 
-	bool m_state_valid;
-	unsigned int m_state;
-};
+	bool m_units_valid;
+	XHC_UNITS_MODE m_units;
 
-enum XHC_WHEEL_MODE {
-	WHEEL_OFF,
-	WHEEL_X,
-	WHEEL_Y,
-	WHEEL_Z,
-	WHEEL_A,
-	WHEEL_SPINDLE,
-	WHEEL_FEED,
-	WHEEL_PROC
+	static unsigned int allowed_steps[11];
 };
 
 class CXhcDevice {
@@ -294,17 +368,23 @@ public:
 	CXhcMpg();
 	~CXhcMpg();
 
-	bool open();
+	bool open(HWND hParent);
 	void close();
 
 	void rescan();
 
 	bool cancelled() const { return m_cancelled; }
+	bool finished() const { return m_finished; }
 	void cancel() { m_cancelled = true; }
+
+	std::list<std::wstring> devices();
+
+	CM4otionState state() const;
 protected:
 	void xhcEvent(const CXhcDeviceEvent& event) override;
 
 private:
+	HWND m_hParent;
 	int m_ipc;
 
 	std::mutex m_dev_mutex;
@@ -316,10 +396,24 @@ private:
 	std::thread m_worker;
 
 	volatile bool m_cancelled;
+	volatile bool m_finished;
 	bool m_opened;
 	semaphore m_semaphore;
+
+	CM4otionState m_state;
 
 	void run();
 	void handleEvent();
 	void updateState();
+
+	bool isMachineEnabled();
+
+	long long m_jog_timer[4];
+
+	bool isJogEnabled();
+	bool isJogInc();
+	bool isJogCont();
+
+	void jogStart(double x, double y, double z, double a);
+	void jogStop(bool force, long long ms);
 };

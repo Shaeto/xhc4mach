@@ -12,18 +12,22 @@
 
 #pragma pack( push, 1 )
 
+#define WHB03_STATE_FLASH_YESNO 0x10
+#define WHB03_STATE_AXIS_A 0x40
+#define WHB03_STATE_UNIT_INCH 0x80
+
 struct whb03_out_data
 {
 	/* header of our packet */
-	uint16_t	magic; 
+	uint16_t	magic;
 	/* day of the month .. funny i know*/
 	uint8_t		day;
-        
-        struct
-        {
-          uint16_t	p_int;
-          uint8_t	p_frac;
-        }pos[6];
+
+	struct
+	{
+		uint16_t	p_int;
+		uint8_t	p_frac;
+	} pos[6];
 	/* speed */
 	uint16_t	feedrate_ovr;
 	uint16_t	sspeed_ovr;
@@ -35,17 +39,19 @@ struct whb03_out_data
 
 };
 
+#define WHB04_STATE_UNIT_INCH 0x80
+
 struct whb04_out_data
 {
 	/* header of our packet */
-	uint16_t	magic; 
+	uint16_t	magic;
 	/* day of the month .. funny i know*/
 	uint8_t		day;
-        struct
-        {
-          uint16_t	p_int;
-          uint16_t	p_frac;
-        }pos[6];
+	struct
+	{
+		uint16_t	p_int;
+		uint16_t	p_frac;
+	} pos[6];
 
 	/* speed */
 	uint16_t	feedrate_ovr;
@@ -62,7 +68,7 @@ struct whb04_out_data
 struct whb03_out_data
 {
 	/* header of our packet */
-	uint16_t	magic; 
+	uint16_t	magic;
 	/* day of the month .. funny i know*/
 	uint8_t		day;
 	/* work pos */
@@ -94,7 +100,7 @@ struct whb03_out_data
 struct whb04_out_data
 {
 	/* header of our packet */
-	uint16_t	magic; 
+	uint16_t	magic;
 	/* day of the month .. funny i know*/
 	uint8_t		day;
 	/* work pos */

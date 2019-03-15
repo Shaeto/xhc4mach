@@ -7,7 +7,7 @@
 #include "CXhcMpg.h"
 
 // CXhcMpgDlg dialog
-class CXhcMpgDlg : public CDHtmlDialog
+class CXhcMpgDlg : public CDialogEx
 {
 // Construction
 public:
@@ -21,9 +21,6 @@ public:
 	protected:
 	virtual void DoDataExchange(CDataExchange* pDX);	// DDX/DDV support
 
-	HRESULT OnButtonOK(IHTMLElement *pElement);
-	HRESULT OnButtonCancel(IHTMLElement *pElement);
-
 // Implementation
 protected:
 	HICON m_hIcon;
@@ -32,12 +29,29 @@ protected:
 
 	// Generated message map functions
 	virtual BOOL OnInitDialog();
-	afx_msg void OnSysCommand(UINT nID, LPARAM lParam);
 	afx_msg void OnPaint();
 	afx_msg BOOL OnDeviceChange(UINT nEventType, DWORD dwData);
 	afx_msg HCURSOR OnQueryDragIcon();
+	afx_msg LRESULT OnMpgListChanged(WPARAM wParam, LPARAM lParam);
+	afx_msg LRESULT OnMpgStateChanged(WPARAM wParam, LPARAM lParam);
+	afx_msg LRESULT OnMpgMach4Status(WPARAM wParam, LPARAM lParam);
 	DECLARE_MESSAGE_MAP()
-	DECLARE_DHTML_EVENT_MAP()
 public:
 	virtual BOOL DestroyWindow();
+	afx_msg void OnBnClickedClose();
+private:
+	CListBox m_xhcListBox;
+public:
+	CButton m_btnMuch4Connect;
+	CButton m_btnMuch4Disconnect;
+	CEdit m_editMCPosAxisX;
+	CEdit m_editMCPosAxisY;
+	CEdit m_editMCPosAxisZ;
+	CEdit m_editMCPosAxisA;
+	CEdit m_editWCPosAxisX;
+	CEdit m_editWCPosAxisY;
+	CEdit m_editWCPosAxisZ;
+	CEdit m_editWCPosAxisA;
+	afx_msg void OnClickedMach4Connect();
+	afx_msg void OnClickedMach4Disconnect();
 };

@@ -8,11 +8,16 @@ extern "C" {
 }
 #include "xhc_dev.h"
 
+unsigned int CM4otionState::allowed_steps[] = { 0, 1, 5, 10, 20, 30, 40, 50, 100, 500, 1000 };
+
 CXhcMpg::CXhcMpg()
 {
 	m_opened = false;
 	m_cancelled = false;
+	m_finished = false;
+	m_jog_timer[AXIS_X] = m_jog_timer[AXIS_Y] = m_jog_timer[AXIS_Z] = m_jog_timer[AXIS_A] = 0;
 	m_ipc = 0;
+	m_hParent = 0;
 }
 
 CXhcMpg::~CXhcMpg()
@@ -20,15 +25,29 @@ CXhcMpg::~CXhcMpg()
 	close();
 }
 
-bool CXhcMpg::open()
+bool CXhcMpg::open(HWND hParent)
 {
 	if (m_opened)
 		return false;
+
+	m_hParent = hParent;
+	m_cancelled = false;
+	m_finished = false;
 
 	if (mcIpcInit("localhost") != 0)
 		return false;
 
 	m_ipc = 0;
+
+	int units = 0;
+	if (mcCntlGetUnitsCurrent(m_ipc, &units) == 0) {
+		if (units == 200) {
+			m_state.units(UNITS_INCH);
+		}
+		else {
+			m_state.units(UNITS_MM);
+		}
+	}
 
 	rescan();
 
@@ -56,45 +75,202 @@ void CXhcMpg::close()
 	m_opened = false;
 }
 
+bool CXhcMpg::isMachineEnabled()
+{
+	HMCSIG h;
+	if (mcSignalGetHandle(m_ipc, OSIG_MACHINE_ENABLED, &h) == 0) {
+		BOOL state;
+		if (mcSignalGetState(h, &state) == 0) {
+			return state == TRUE;
+		}
+	}
+	throw std::exception("Mach4IPC connection error");
+}
+
+bool CXhcMpg::isJogEnabled()
+{
+	HMCSIG h;
+	if (mcSignalGetHandle(m_ipc, OSIG_JOG_ENABLED, &h) == 0) {
+		BOOL state;
+		if (mcSignalGetState(h, &state) == 0) {
+			return state == TRUE;
+		}
+	}
+	throw std::exception("Mach4IPC connection error");
+}
+
+bool CXhcMpg::isJogCont()
+{
+	HMCSIG h;
+	if (mcSignalGetHandle(m_ipc, OSIG_JOG_CONT, &h) == 0) {
+		BOOL state;
+		if (mcSignalGetState(h, &state) == 0) {
+			return state == TRUE;
+		}
+	}
+	throw std::exception("Mach4IPC connection error");
+}
+
+bool CXhcMpg::isJogInc()
+{
+	HMCSIG h;
+	if (mcSignalGetHandle(m_ipc, OSIG_JOG_INC, &h) == 0) {
+		BOOL state;
+		if (mcSignalGetState(h, &state) == 0) {
+			return state == TRUE;
+		}
+	}
+	throw std::exception("Mach4IPC connection error");
+}
+
+void CXhcMpg::jogStart(double x, double y, double z, double a)
+{
+	long long time_to_stop = 100;
+	bool inc_jog = isJogInc();
+
+	//	inc_jog = false;
+
+	if (inc_jog) {
+		// TODO:
+		// mcJogSetInc(m_ipc, X_AXIS, ????)
+		// mcJogSetAccel ???
+		// mcJogGetInc ??
+		if (x != 0) {
+			mcJogIncStart(m_ipc, AXIS_X, x);
+			m_jog_timer[AXIS_X] = time_to_stop;
+		}
+		if (y != 0) {
+			mcJogIncStart(m_ipc, AXIS_Y, y);
+			m_jog_timer[AXIS_Y] = time_to_stop;
+		}
+		if (z != 0) {
+			mcJogIncStart(m_ipc, AXIS_Z, z);
+			m_jog_timer[AXIS_Z] = time_to_stop;
+		}
+		if (a != 0) {
+			mcJogIncStart(m_ipc, AXIS_A, a);
+			m_jog_timer[AXIS_A] = time_to_stop;
+		}
+	}
+	else {
+		// TODO:
+		// mcJogSetRate(m_ipc, X_AXIS, ????)
+		// mcJogSetAccel ???
+		if (x != 0) {
+			mcJogVelocityStart(m_ipc, AXIS_X, x > 0.0 ? MC_JOG_POS : MC_JOG_NEG);
+			m_jog_timer[AXIS_X] = time_to_stop;
+		}
+		if (y != 0) {
+			mcJogVelocityStart(m_ipc, AXIS_Y, y > 0.0 ? MC_JOG_POS : MC_JOG_NEG);
+			m_jog_timer[AXIS_Y] = time_to_stop;
+		}
+		if (z != 0) {
+			mcJogVelocityStart(m_ipc, AXIS_Z, z > 0.0 ? MC_JOG_POS : MC_JOG_NEG);
+			m_jog_timer[AXIS_Z] = time_to_stop;
+		}
+		if (a != 0) {
+			mcJogVelocityStart(m_ipc, AXIS_A, a > 0.0 ? MC_JOG_POS : MC_JOG_NEG);
+			m_jog_timer[AXIS_A] = time_to_stop;
+		}
+	}
+}
+
+void CXhcMpg::jogStop(bool force, long long ms)
+{
+	try {
+		bool is_inc = isJogInc();
+
+		unsigned int axis[4] = { AXIS_X, AXIS_Y, AXIS_Z, AXIS_A };
+
+		for (unsigned int i = 0; i < 4; i++) {
+			unsigned int a = axis[i];
+			if (m_jog_timer[a]) {
+				if (!force && m_jog_timer[a] > ms) {
+					m_jog_timer[a] -= ms;
+				}
+				else {
+					if (is_inc) {
+						// mcJogIncStop(m_ipc, a, 0.1); // no ideas what does mean incr there
+					}
+					else {
+						mcJogVelocityStop(m_ipc, a);
+					}
+					m_jog_timer[a] = 0;
+				}
+			}
+		}
+	}
+	catch (const std::exception& e) {
+
+	}
+}
+
 void CXhcMpg::handleEvent()
 {
 	std::lock_guard<std::mutex> lock(m_event_mutex);
 
-	while (m_events.begin() != m_events.end()) {
-		auto event = m_events.begin();
-		switch (event->eventof()) {
-		case btnStop:
-			mcCntlCycleStop(m_ipc);
-			break;
-		case btnStartPause:
-		{
-			BOOL cycle;
-			if (mcCntlIsInCycle(m_ipc, &cycle) == 0) {
-				if (!cycle)
-					mcCntlCycleStart(m_ipc);
-				else
-					mcCntlCycleStop(m_ipc);
+	try {
+		while (m_events.begin() != m_events.end()) {
+			auto event = m_events.begin();
+			switch (event->eventof()) {
+			case btnStop:
+				mcCntlCycleStop(m_ipc);
+				break;
+			case btnStartPause:
+			{
+				BOOL cycle;
+				if (mcCntlIsInCycle(m_ipc, &cycle) == 0) {
+					if (!cycle)
+						mcCntlCycleStart(m_ipc);
+					else
+						mcCntlCycleStop(m_ipc);
+				}
 			}
+			break;
+			case btnReset:
+				mcCntlReset(m_ipc);
+				break;
+			case btnRewind:
+				mcCntlRewindFile(m_ipc);
+				break;
+			case btnGotoZero:
+				mcCntlGotoZero(m_ipc);
+				break;
+			case btnGotoHome:
+				mcAxisHomeAll(m_ipc);
+				break;
+			case adjustX:
+				jogStart(event->valueof(), 0, 0, 0);
+				break;
+			case adjustY:
+				jogStart(0, event->valueof(), 0, 0);
+				break;
+			case adjustZ:
+				jogStart(0, 0, event->valueof(), 0);
+				break;
+			case adjustA:
+				jogStart(0, 0, 0, event->valueof());
+				break;
+			case btnStepPlusPlus:
+			case btnStepRight:
+				m_state.step_mul_up();
+				break;
+			case btnStepLeft:
+				m_state.step_mul_down();
+				break;
+			}
+			m_events.pop_front();
 		}
-		break;
-		case btnReset:
-			mcCntlReset(m_ipc);
-			break;
-		case btnRewind:
-			mcCntlRewindFile(m_ipc);
-			break;
-		case btnGotoZero:
-			mcCntlGotoZero(m_ipc);
-			break;
-		case btnGotoHome:
-			mcAxisHomeAll(m_ipc);
-			break;
-		case adjustX:
-			//			mcJogIncStart(0, 0, event->valueof());
-			break;
-		}
-		m_events.pop_front();
 	}
+	catch (const std::exception& e) {
+
+	}
+}
+
+CM4otionState CXhcMpg::state() const
+{
+	// todo: lock access to m_state
+	return m_state;
 }
 
 void CXhcMpg::updateState()
@@ -127,24 +303,50 @@ void CXhcMpg::updateState()
 	mcCntlGetPoundVar(m_ipc, SV_FEEDRATE, &x);
 	s.feedrate((unsigned int)abs((int)x));
 
+	if (m_state.update(s)) {
+		if (m_hParent) {
+			PostMessage(m_hParent, WM_MPG_STATE_CHANGED, 0, 0);
+		}
+	}
 	std::lock_guard<std::mutex> lock(m_dev_mutex);
 	for (auto const&[guid, dev] : m_devs) {
-		dev->update(s);
+		dev->update(m_state);
 	}
 }
 
 void CXhcMpg::run()
 {
 	std::chrono::time_point<std::chrono::system_clock> updateTime = std::chrono::system_clock::now() + std::chrono::milliseconds(500);
+	std::chrono::time_point<std::chrono::system_clock> jogTimerBegin = std::chrono::system_clock::now();
+
+	if (m_hParent) {
+		PostMessage(m_hParent, WM_MPG_MACH4_STATUS, 1, 0);
+	}
 
 	while (!cancelled()) {
+		// wait for key/wheel events from plugged XHC devices
 		if (m_semaphore.wait_for(std::chrono::milliseconds(100))) {
 			handleEvent();
 		}
+		// refresh devices displays every X milliseconds
 		if (std::chrono::system_clock::now() > updateTime) {
 			updateTime = std::chrono::system_clock::now() + std::chrono::milliseconds(500);
 			updateState();
 		}
+		std::chrono::time_point<std::chrono::system_clock> jogTimerEnd = std::chrono::system_clock::now();
+
+		long long jog_delta = std::chrono::duration_cast<std::chrono::milliseconds>(jogTimerEnd - jogTimerBegin).count();
+		if (jog_delta) {
+			jogStop(false, jog_delta);
+		}
+
+		jogTimerBegin = std::chrono::system_clock::now();
+	}
+	jogStop(true, 0);
+	m_finished = true;
+
+	if (m_hParent) {
+		PostMessage(m_hParent, WM_MPG_MACH4_STATUS, 0, 0);
 	}
 }
 
@@ -157,7 +359,7 @@ void CXhcMpg::xhcEvent(const CXhcDeviceEvent& event)
 
 void CXhcMpg::rescan()
 {
-	std::regex re("#\\{([^\\}]+)\\}$", std::regex::ECMAScript | std::regex::optimize);
+	std::regex re("^(.+)\\&col\\d{2}(#.+)\\&\\d+(#\\{.*)$", std::regex::ECMAScript | std::regex::optimize);
 	std::map<std::string, CXhcDevice> cur_xhc_devs;
 	struct hid_device_info *devs, *cur_dev;
 
@@ -169,7 +371,7 @@ void CXhcMpg::rescan()
 			// extract device guid
 			std::smatch match;
 			if (std::regex_search(path, match, re) && match.size()) {
-				std::string guid = match[1];
+				std::string guid = match[1].str() + match[2].str() + match[3].str();
 
 				auto& dev1 = cur_xhc_devs.find(guid);
 				if (dev1 == cur_xhc_devs.end()) {
@@ -199,7 +401,7 @@ void CXhcMpg::rescan()
 			// extract device guid
 			std::smatch match;
 			if (std::regex_search(path, match, re) && match.size()) {
-				std::string guid = match[1];
+				std::string guid = match[1].str() + match[2].str() + match[3].str();
 
 				auto& dev1 = cur_xhc_devs.find(guid);
 				if (dev1 == cur_xhc_devs.end()) {
@@ -228,19 +430,72 @@ void CXhcMpg::rescan()
 	}
 	hid_free_enumeration(devs);
 
+	bool list_changed = false;
+
 	std::lock_guard<std::mutex> lock(m_dev_mutex);
 	for (auto const&[guid, dev] : cur_xhc_devs) {
 		const auto& d = m_devs.find(guid);
 		if (d == m_devs.end()) {
 			m_devs.emplace(guid, new CXhcDeviceAgent(dev, this));
+			list_changed = true;
 		}
-		else if (d->second->finished()) {
+		else {
+			if (d->second->finished()) {
+				d->second->stop();
+				delete d->second;
+				m_devs.erase(d);
+				m_devs.emplace(guid, new CXhcDeviceAgent(dev, this));
+				list_changed = true;
+			}
+		}
+	}
+
+	auto& d = m_devs.begin();
+	while (d != m_devs.end()) {
+		if (cur_xhc_devs.find(d->first) == cur_xhc_devs.end()) {
+			auto d1 = d;
+			d1++;
 			d->second->stop();
 			delete d->second;
 			m_devs.erase(d);
-			m_devs.emplace(guid, new CXhcDeviceAgent(dev, this));
+			list_changed = true;
+			d = d1;
+		}
+		else
+			d++;
+	}
+
+	if (list_changed) {
+		if (m_hParent) {
+			PostMessage(m_hParent, WM_MPG_LIST_CHANGED, 0, 0);
 		}
 	}
+}
+
+std::list<std::wstring> CXhcMpg::devices()
+{
+	std::list<std::wstring> list;
+
+	std::lock_guard<std::mutex> lock(m_dev_mutex);
+	for (auto const&[guid, dev] : m_devs) {
+		if (!dev->finished()) {
+			std::wstring node_name;
+
+			switch (dev->typeof()) {
+			case WHB03_PID:
+				node_name = _T("XHC xHB03 MPG");
+				break;
+			case WHB04_PID:
+				node_name = _T("XHC xHB04 MPG");
+				break;
+			default:
+				node_name = _T("UNKNOWN MPG");
+			}
+			list.push_back(node_name);
+		}
+	}
+
+	return list;
 }
 
 CXhcDeviceAgent::CXhcDeviceAgent(const CXhcDevice& device, CXhcDeviceEventReceiver *receiver) : m_device(device), m_receiver(receiver)
@@ -270,9 +525,14 @@ void CXhcDeviceAgent::update(const CM4otionState& s)
 	m_state_sem.notify();
 }
 
+// i dont know why but my WHB03-L uses the same protocol as LHB04 and i don't know how to choose protocol automatically
+// you can enable old protocol here
+#define ENABLE_OLD_HB03 0
+
 bool CXhcDeviceAgent::send_status(void *handle)
 {
 	switch (typeof()) {
+#if ENABLE_OLD_HB03
 	case WHB03_PID:
 	{
 		whb03_out_data cmd = {
@@ -291,9 +551,49 @@ bool CXhcDeviceAgent::send_status(void *handle)
 			(uint16_t)m_state.feedrate(),
 			(uint16_t)m_state.sspeed(),
 
-			(uint8_t)m_state.step_mul(),
-			(uint8_t)m_state.state()
+			0,
+			0
 		};
+
+		switch (m_state.step_mul()) {
+		case 0:
+			cmd.step_mul = 0;
+			break;
+		case 1:
+			cmd.step_mul = 1;
+			break;
+		case 5:
+			cmd.step_mul = 2;
+			break;
+		case 10:
+			cmd.step_mul = 3;
+			break;
+		case 20:
+			cmd.step_mul = 4;
+			break;
+		case 30:
+			cmd.step_mul = 5;
+			break;
+		case 40:
+			cmd.step_mul = 6;
+			break;
+		case 50:
+			cmd.step_mul = 7;
+			break;
+		case 100:
+			cmd.step_mul = 8;
+			break;
+		case 500:
+			cmd.step_mul = 9;
+			break;
+		case 1000:
+			cmd.step_mul = 10;
+			break;
+		}
+
+		if (m_state.units() == UNITS_INCH)
+			cmd.state |= WHB03_STATE_UNIT_INCH;
+
 		size_t cmd_len = sizeof(cmd), max_pkt_len = 8;
 		uint8_t *p = (uint8_t *)&cmd, pkt[128];
 		pkt[0] = 0x06;
@@ -307,8 +607,11 @@ bool CXhcDeviceAgent::send_status(void *handle)
 			p += len;
 			cmd_len -= len;
 		}
-	}
+}
 	break;
+#else
+	case WHB03_PID:
+#endif
 	case WHB04_PID:
 	{
 		whb04_out_data cmd = {
@@ -326,10 +629,49 @@ bool CXhcDeviceAgent::send_status(void *handle)
 			(uint16_t)m_state.sspeed_ovr(),
 			(uint16_t)m_state.feedrate(),
 			(uint16_t)m_state.sspeed(),
-
-			(uint8_t)m_state.step_mul(),
-			(uint8_t)m_state.state()
+			0,
+			0
 		};
+
+		switch (m_state.step_mul()) {
+		case 0:
+			cmd.step_mul = 0;
+			break;
+		case 1:
+			cmd.step_mul = 1;
+			break;
+		case 5:
+			cmd.step_mul = 2;
+			break;
+		case 10:
+			cmd.step_mul = 3;
+			break;
+		case 20:
+			cmd.step_mul = 4;
+			break;
+		case 30:
+			cmd.step_mul = 5;
+			break;
+		case 40:
+			cmd.step_mul = 6;
+			break;
+		case 50:
+			cmd.step_mul = 7;
+			break;
+		case 100:
+			cmd.step_mul = 8;
+			break;
+		case 500:
+			cmd.step_mul = 9;
+			break;
+		case 1000:
+			cmd.step_mul = 10;
+			break;
+		}
+
+		if (m_state.units() == UNITS_INCH)
+			cmd.state |= WHB04_STATE_UNIT_INCH;
+
 		size_t cmd_len = sizeof(cmd), max_pkt_len = 8;
 		uint8_t *p = (uint8_t *)&cmd, pkt[128];
 		pkt[0] = 0x06;
