@@ -52,8 +52,12 @@ BOOL CXhcMpgApp::InitInstance()
 	InitCtrls.dwICC = ICC_WIN95_CLASSES;
 	InitCommonControlsEx(&InitCtrls);
 
-	CWinApp::InitInstance();
+	HANDLE inst_check_mutex = ::CreateMutex(NULL, FALSE, _T("d21361f8-baf1-4f63-b798-b2be4cc248b9"));
+	if (inst_check_mutex == NULL || GetLastError() == ERROR_ALREADY_EXISTS) {
+		return FALSE;
+	}
 
+	CWinApp::InitInstance();
 
 	// Create the shell manager, in case the dialog contains
 	// any shell tree view or shell list view controls.
@@ -69,7 +73,7 @@ BOOL CXhcMpgApp::InitInstance()
 	// Change the registry key under which our settings are stored
 	// TODO: You should modify this string to be something appropriate
 	// such as the name of your company or organization
-	SetRegistryKey(_T("Local AppWizard-Generated Applications"));
+	SetRegistryKey(_T("XHC4MACH"));
 
 	// Initialize the hidapi library
 	int res = hid_init();
@@ -105,6 +109,8 @@ BOOL CXhcMpgApp::InitInstance()
 
 	// Finalize the hidapi library
 	res = hid_exit();
+
+	CloseHandle(inst_check_mutex);
 
 	// Since the dialog has been closed, return FALSE so that we exit the
 	//  application, rather than start the application's message pump.
