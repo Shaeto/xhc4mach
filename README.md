@@ -17,6 +17,13 @@ Please avoid to use incremental jogging mode for now
 
 **Application is very raw ! Please, be very careful and keep hand on E-Stop button!**
 
+i dont know why but my WHB03-L uses the same protocol as LHB04, so, if you will have problem with xHB03 please try to find ENABLE_OLD_HB03 in CXhcMpg.cpp and set it
+
+#define ENABLE_OLD_HB03 1
+
+when rebuild application
+
+
 Disclaimer & Limitation of Liability:
 I AM NOT LIABLE FOR ANY LOSS OR DAMAGE ARISING DIRECTLY OR INDIRECTLY (INCLUDING SPECIAL, INCIDENTAL OR CONSEQUENTIAL LOSS OR DAMAGE) FROM THE USERS'S USE OF THE APPLICATION.
 

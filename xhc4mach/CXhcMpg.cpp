@@ -34,11 +34,14 @@ bool CXhcMpg::open(HWND hParent)
 	m_cancelled = false;
 	m_finished = false;
 
+	// try to connect to Mach 4 instance using mach4ipc interface
 	if (mcIpcInit("localhost") != 0)
 		return false;
 
+	// it seems mach 4 ipc handle is always = 0
 	m_ipc = 0;
 
+	// get mach 4 units mode
 	int units = 0;
 	if (mcCntlGetUnitsCurrent(m_ipc, &units) == 0) {
 		if (units == 200) {
@@ -49,11 +52,14 @@ bool CXhcMpg::open(HWND hParent)
 		}
 	}
 
+	// scan list of pluged usb devices to find XHC pendants
 	rescan();
 
+	// start main code in separated thread
 	m_worker = std::thread(Magent, this);
 	m_opened = true;
 
+	// return to caller
 	return true;
 }
 
@@ -62,15 +68,19 @@ void CXhcMpg::close()
 	if (!m_opened)
 		return;
 
+	// send cancel event to thread
 	cancel();
+	// wait thread to terminate
 	m_worker.join();
 
+	// cancel and destroy all threads for managed XHC devices
 	for (auto const &[path, t] : m_devs) {
 		if (t) {
 			t->stop();
 			delete t;
 		}
 	}
+	// destroy connection to Mach 4 IPC
 	mcIpcCleanup();
 	m_opened = false;
 }
