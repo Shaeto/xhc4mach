@@ -39,6 +39,9 @@
     <ClInclude Include="Mach4IPC.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="xhc_dev.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="xhc4mach.cpp">

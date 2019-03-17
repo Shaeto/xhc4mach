@@ -203,6 +203,7 @@
     <ClInclude Include="targetver.h" />
     <ClInclude Include="xhc4mach.h" />
     <ClInclude Include="XhcDlg.h" />
+    <ClInclude Include="xhc_dev.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="CXhcMpg.cpp" />

@@ -404,34 +404,55 @@ public:
 	// update XHC display and state using Mach 4 motion state class
 	void update(const CM4otionState& s);
 protected:
+	// device state
+	unsigned char m_day;
+	CM4otionState m_state;
+	XHC_WHEEL_MODE m_wheel_mode;
+	//
+	CXhcDeviceEventReceiver *m_receiver;
+	// managed device properties
+	CXhcDevice m_device;
+
 	// thread main loop
 	virtual int Run();
+
+	// update XHC display according to machine state
+	// return false if connection is lost
+	virtual bool updateDisplay(void *handle) = 0;
+
+	// try to read and process new event from XHC device
+	// return false if connection is lost
+	virtual bool getEvent(void *handle, unsigned int timeout_ms) = 0;
 
 private:
 	// ugly i know but this still works
 	volatile bool m_finished;
 	volatile bool m_cancelled;
 
-	// managed device properties
-	CXhcDevice m_device;
-
-	// device state
-	unsigned char m_day;
-	CM4otionState m_state;
-
 	semaphore m_state_sem;
 	std::mutex m_state_mutex;
 	std::list<CM4otionState> m_state_queue;
 
-	XHC_WHEEL_MODE m_wheel_mode;
-
-	//
-	CXhcDeviceEventReceiver *m_receiver;
-
-	bool send_status(void *handle);
-
 	// thread instance
 	std::thread m_worker;
+};
+
+// old xHB03
+class CXhcHB03Agent : public CXhcDeviceAgent {
+public:
+	CXhcHB03Agent(const CXhcDevice& device, CXhcDeviceEventReceiver *receiver) : CXhcDeviceAgent(device, receiver) {}
+private:
+	bool updateDisplay(void *handle) override;
+	bool getEvent(void *handle, unsigned int timeout_ms) override;
+};
+
+// old xHB04
+class CXhcHB04Agent : public CXhcDeviceAgent {
+public:
+	CXhcHB04Agent(const CXhcDevice& device, CXhcDeviceEventReceiver *receiver) : CXhcDeviceAgent(device, receiver) {}
+private:
+	bool updateDisplay(void *handle) override;
+	bool getEvent(void *handle, unsigned int timeout_ms) override;
 };
 
 // main class which is manages list of XHC devices and controlling events flow

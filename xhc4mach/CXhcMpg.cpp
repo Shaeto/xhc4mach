@@ -446,16 +446,32 @@ void CXhcMpg::rescan()
 	for (auto const&[guid, dev] : cur_xhc_devs) {
 		const auto& d = m_devs.find(guid);
 		if (d == m_devs.end()) {
-			m_devs.emplace(guid, new CXhcDeviceAgent(dev, this));
-			list_changed = true;
+			switch (dev.typeof()) {
+			case WHB03_PID:
+				m_devs.emplace(guid, new CXhcHB03Agent(dev, this));
+				list_changed = true;
+				break;
+			case WHB04_PID:
+				m_devs.emplace(guid, new CXhcHB04Agent(dev, this));
+				list_changed = true;
+				break;
+			}
 		}
 		else {
 			if (d->second->finished()) {
 				d->second->stop();
 				delete d->second;
 				m_devs.erase(d);
-				m_devs.emplace(guid, new CXhcDeviceAgent(dev, this));
-				list_changed = true;
+				switch (dev.typeof()) {
+				case WHB03_PID:
+					m_devs.emplace(guid, new CXhcHB03Agent(dev, this));
+					list_changed = true;
+					break;
+				case WHB04_PID:
+					m_devs.emplace(guid, new CXhcHB04Agent(dev, this));
+					list_changed = true;
+					break;
+				}
 			}
 		}
 	}
@@ -498,6 +514,9 @@ std::list<std::wstring> CXhcMpg::devices()
 			case WHB04_PID:
 				node_name = _T("XHC xHB04 MPG");
 				break;
+			case WHB04B6_PID:
+				node_name = _T("XHC WHB04B-6 MPG");
+				break;
 			default:
 				node_name = _T("UNKNOWN MPG");
 			}
@@ -539,471 +558,16 @@ void CXhcDeviceAgent::update(const CM4otionState& s)
 // you can enable old protocol here
 #define ENABLE_OLD_HB03 0
 
-bool CXhcDeviceAgent::send_status(void *handle)
-{
-	switch (typeof()) {
-#if ENABLE_OLD_HB03
-	case WHB03_PID:
-	{
-		whb03_out_data cmd = {
-			WHBxx_MAGIC,
-			m_day,
-			{
-				_defract(((m_wheel_mode == WHEEL_A) ? m_state.wc(AXIS_A) : m_state.wc(AXIS_X))),
-				_defract(m_state.wc(AXIS_Y)),
-				_defract(m_state.wc(AXIS_Z)),
-				_defract(((m_wheel_mode == WHEEL_A) ? m_state.mc(AXIS_A) : m_state.mc(AXIS_X))),
-				_defract(m_state.mc(AXIS_Y)),
-				_defract(m_state.mc(AXIS_Z))
-			},
-			(uint16_t)m_state.feedrate_ovr(),
-			(uint16_t)m_state.sspeed_ovr(),
-			(uint16_t)m_state.feedrate(),
-			(uint16_t)m_state.sspeed(),
-
-			0,
-			0
-		};
-
-		switch (m_state.step_mul()) {
-		case 0:
-			cmd.step_mul = 0;
-			break;
-		case 1:
-			cmd.step_mul = 1;
-			break;
-		case 5:
-			cmd.step_mul = 2;
-			break;
-		case 10:
-			cmd.step_mul = 3;
-			break;
-		case 20:
-			cmd.step_mul = 4;
-			break;
-		case 30:
-			cmd.step_mul = 5;
-			break;
-		case 40:
-			cmd.step_mul = 6;
-			break;
-		case 50:
-			cmd.step_mul = 7;
-			break;
-		case 100:
-			cmd.step_mul = 8;
-			break;
-		case 500:
-			cmd.step_mul = 9;
-			break;
-		case 1000:
-			cmd.step_mul = 10;
-			break;
-		}
-
-		if (m_state.units() == UNITS_INCH)
-			cmd.state |= WHB03_STATE_UNIT_INCH;
-
-		size_t cmd_len = sizeof(cmd), max_pkt_len = 8;
-		uint8_t *p = (uint8_t *)&cmd, pkt[128];
-		pkt[0] = 0x06;
-		while (cmd_len) {
-			size_t len = cmd_len > (max_pkt_len - 1) ? (max_pkt_len - 1) : cmd_len;
-			memcpy(&pkt[1], p, len);
-			int rc = hid_send_feature_report((hid_device *)handle, pkt, max_pkt_len);
-			if (rc != max_pkt_len) {
-				return false;
-			}
-			p += len;
-			cmd_len -= len;
-		}
-}
-	break;
-#else
-	case WHB03_PID:
-#endif
-	case WHB04_PID:
-	{
-		whb04_out_data cmd = {
-			WHBxx_MAGIC,
-			m_day,
-			{
-				_defract2(((m_wheel_mode == WHEEL_A) ? m_state.wc(AXIS_A) : m_state.wc(AXIS_X))),
-				_defract2(m_state.wc(AXIS_Y)),
-				_defract2(m_state.wc(AXIS_Z)),
-				_defract2(((m_wheel_mode == WHEEL_A) ? m_state.mc(AXIS_A) : m_state.mc(AXIS_X))),
-				_defract2(m_state.mc(AXIS_Y)),
-				_defract2(m_state.mc(AXIS_Z))
-			},
-			(uint16_t)m_state.feedrate_ovr(),
-			(uint16_t)m_state.sspeed_ovr(),
-			(uint16_t)m_state.feedrate(),
-			(uint16_t)m_state.sspeed(),
-			0,
-			0
-		};
-
-		switch (m_state.step_mul()) {
-		case 0:
-			cmd.step_mul = 0;
-			break;
-		case 1:
-			cmd.step_mul = 1;
-			break;
-		case 5:
-			cmd.step_mul = 2;
-			break;
-		case 10:
-			cmd.step_mul = 3;
-			break;
-		case 20:
-			cmd.step_mul = 4;
-			break;
-		case 30:
-			cmd.step_mul = 5;
-			break;
-		case 40:
-			cmd.step_mul = 6;
-			break;
-		case 50:
-			cmd.step_mul = 7;
-			break;
-		case 100:
-			cmd.step_mul = 8;
-			break;
-		case 500:
-			cmd.step_mul = 9;
-			break;
-		case 1000:
-			cmd.step_mul = 10;
-			break;
-		}
-
-		if (m_state.units() == UNITS_INCH)
-			cmd.state |= WHB04_STATE_UNIT_INCH;
-
-		size_t cmd_len = sizeof(cmd), max_pkt_len = 8;
-		uint8_t *p = (uint8_t *)&cmd, pkt[128];
-		pkt[0] = 0x06;
-		while (cmd_len) {
-			size_t len = cmd_len > (max_pkt_len - 1) ? (max_pkt_len - 1) : cmd_len;
-			memcpy(&pkt[1], p, len);
-			int rc = hid_send_feature_report((hid_device *)handle, pkt, max_pkt_len);
-			if (rc != max_pkt_len) {
-				return false;
-			}
-			p += len;
-			cmd_len -= len;
-		}
-	}
-	break;
-	default:
-		return false;
-	}
-
-	return true;
-}
-
 int CXhcDeviceAgent::Run()
 {
 	hid_device *hin = hid_open_path(m_device.devin().c_str());
 	hid_device *hout = hid_open_path(m_device.devout().c_str());
 
 	if (hin && hout) {
-		unsigned char packet[64];
-		int packet_len;
-
-		switch (typeof()) {
-		case WHB03_PID:
-		case WHB04_PID:
-			packet_len = sizeof(whb0x_in_data);
-			break;
-		default:
-			m_cancelled = true;
-		}
-
 		while (!m_cancelled) {
-			int rc = hid_read_timeout(hin, packet, packet_len, 100);
-			if (rc < 0)
+			if (!getEvent(hin, 50))
 				break;
-			if (rc == packet_len) {
-				switch (typeof()) {
-				case WHB03_PID:
-				{
-					whb0x_in_data *pkt = (whb0x_in_data *)packet;
-					if (pkt->id == 4 && pkt->xor_day == (m_day ^ pkt->btn_1)) {
-						CXhcDeviceEvent event;
 
-						event.nameof(m_device.devin());
-
-						switch (pkt->wheel_mode) {
-						case 0x11:
-							m_wheel_mode = WHEEL_X;
-							break;
-						case 0x12:
-							m_wheel_mode = WHEEL_Y;
-							break;
-						case 0x13:
-							m_wheel_mode = WHEEL_Z;
-							break;
-						case 0x14:
-							m_wheel_mode = WHEEL_FEED;
-							break;
-						case 0x15:
-							m_wheel_mode = WHEEL_SPINDLE;
-							break;
-						case 0x18:
-							m_wheel_mode = WHEEL_A;
-							break;
-						default:
-							m_wheel_mode = WHEEL_OFF;
-						}
-
-						switch (pkt->btn_1) {
-						case 0x17:
-							event.eventof(btnYes);
-							break;
-						case 0x16:
-							event.eventof(btnNo);
-							break;
-						case 0x01:
-							event.eventof(btnStop);
-							break;
-						case 0x02:
-							event.eventof(btnStartPause);
-							break;
-						case 0x03:
-							event.eventof(btnRewind);
-							break;
-						case 0x04:
-							event.eventof(btnProbeZ);
-							break;
-						case 0x0c:
-							event.eventof(btnGotoZero);
-							break;
-						case 0x06:
-							event.eventof(btnXDiv2);
-							break;
-						case 0x07:
-							event.eventof(btnYDiv2);
-							break;
-						case 0x08:
-							event.eventof(btnSafeZ);
-							break;
-						case 0x09:
-							event.eventof(btnZeroX);
-							break;
-						case 0x0a:
-							event.eventof(btnZeroY);
-							break;
-						case 0x0b:
-							event.eventof(btnZeroZ);
-							break;
-						case 0x05:
-							event.eventof(btnGotoHome);
-							break;
-						case 0x0d:
-							event.eventof(btnStepLeft);
-							break;
-						case 0x0e:
-							event.eventof(btnStepRight);
-							break;
-						case 0x0f:
-							event.eventof(btnFineXYZ);
-							break;
-						case 0x10:
-							event.eventof(btnSpindle);
-							break;
-						}
-						// send button event if happened
-						if (event.eventof()) {
-							if (m_receiver) {
-								m_receiver->xhcEvent(event);
-							}
-							event.eventof(nop);
-						}
-
-						if (pkt->wheel) {
-							event.valueof(pkt->wheel);
-							switch (pkt->wheel_mode) {
-							case 0x11:
-								event.eventof(adjustX);
-								break;
-							case 0x12:
-								event.eventof(adjustY);
-								break;
-							case 0x13:
-								event.eventof(adjustZ);
-								break;
-							case 0x14:
-								event.eventof(adjustFeedRate);
-								break;
-							case 0x15:
-								event.eventof(adjustSpindleSpeed);
-								break;
-							case 0x18:
-								event.eventof(adjustProcessingSpeed);
-								break;
-							}
-							// send wheel event if happened
-							if (event.eventof()) {
-								if (m_receiver) {
-									m_receiver->xhcEvent(event);
-								}
-							}
-						}
-					}
-				}
-				break;
-				case WHB04_PID:
-				{
-					whb0x_in_data *pkt = (whb0x_in_data *)packet;
-					if (pkt->id == 4 && pkt->xor_day == (m_day ^ pkt->btn_1)) {
-						CXhcDeviceEvent event;
-
-						event.nameof(m_device.devin());
-
-						switch (pkt->wheel_mode) {
-						case 0x11:
-							m_wheel_mode = WHEEL_X;
-							break;
-						case 0x12:
-							m_wheel_mode = WHEEL_Y;
-							break;
-						case 0x13:
-							m_wheel_mode = WHEEL_Z;
-							break;
-						case 0x14:
-							m_wheel_mode = WHEEL_FEED;
-							break;
-						case 0x15:
-							m_wheel_mode = WHEEL_SPINDLE;
-							break;
-						case 0x18:
-							m_wheel_mode = WHEEL_A;
-							break;
-						default:
-							m_wheel_mode = WHEEL_OFF;
-						}
-
-						switch (pkt->btn_1) {
-						case 0x17:
-							event.eventof(btnReset);
-							break;
-						case 0x16:
-							event.eventof(btnStop);
-							break;
-						case 0x01:
-							event.eventof(btnGotoZero);
-							break;
-						case 0x02:
-							event.eventof(btnStartPause);
-							break;
-						case 0x03:
-							event.eventof(btnRewind);
-							break;
-						case 0x04:
-							event.eventof(btnProbeZ);
-							break;
-						case 0x0c:
-							event.eventof(btnSpindle);
-							break;
-						case 0x06:
-							switch (pkt->wheel_mode) {
-							case 0x11:
-								event.eventof(btnXDiv2);
-								break;
-							case 0x12:
-								event.eventof(btnYDiv2);
-								break;
-							case 0x13:
-								event.eventof(btnZDiv2);
-								break;
-							}
-							break;
-						case 0x07:
-							switch (pkt->wheel_mode) {
-							case 0x11:
-								event.eventof(btnZeroX);
-								break;
-							case 0x12:
-								event.eventof(btnZeroY);
-								break;
-							case 0x13:
-								event.eventof(btnZeroZ);
-								break;
-							}
-							break;
-						case 0x08:
-							event.eventof(btnSafeZ);
-							break;
-						case 0x09:
-							event.eventof(btnGotoHome);
-							break;
-						case 0x0a:
-							event.eventof(btnMacro1);
-							break;
-						case 0x0b:
-							event.eventof(btnMacro2);
-							break;
-						case 0x05:
-							event.eventof(btnMacro3);
-							break;
-						case 0x0d:
-							event.eventof(btnStepPlusPlus);
-							break;
-						case 0x0e:
-							event.eventof(btnMpgMode);
-							break;
-						case 0x0f:
-							event.eventof(btnMacro6);
-							break;
-						case 0x10:
-							event.eventof(btnMacro7);
-							break;
-						}
-						// send button event if happened
-						if (event.eventof()) {
-							if (m_receiver) {
-								m_receiver->xhcEvent(event);
-							}
-							event.eventof(nop);
-						}
-
-						if (pkt->wheel) {
-							event.valueof(pkt->wheel);
-							switch (pkt->wheel_mode) {
-							case 0x11:
-								event.eventof(adjustX);
-								break;
-							case 0x12:
-								event.eventof(adjustY);
-								break;
-							case 0x13:
-								event.eventof(adjustZ);
-								break;
-							case 0x14:
-								event.eventof(adjustFeedRate);
-								break;
-							case 0x15:
-								event.eventof(adjustSpindleSpeed);
-								break;
-							case 0x18:
-								event.eventof(adjustA);
-								break;
-							}
-							// send wheel event if happened
-							if (event.eventof()) {
-								if (m_receiver) {
-									m_receiver->xhcEvent(event);
-								}
-							}
-						}
-					}
-				}
-				break;
-				}
-			}
 			if (m_state_sem.try_wait()) {
 				std::lock_guard<std::mutex> lock(m_state_mutex);
 
@@ -1011,7 +575,7 @@ int CXhcDeviceAgent::Run()
 					m_state.update(state);
 				}
 				m_state_queue.clear();
-				send_status(hout);
+				updateDisplay(hout);
 			}
 		}
 
@@ -1022,4 +586,456 @@ int CXhcDeviceAgent::Run()
 	m_finished = true;
 
 	return 0;
+}
+
+#define _defract(c) { (uint16_t) abs(c), (uint8_t) (((uint8_t) abs((c - (long)c)*100.0)) | (c < 0 ? 0x80 : 0))}
+#define _defract2(c) { (uint16_t) abs(c), (uint16_t) (((uint16_t) abs((c - (long)c)*10000.0)) | (c < 0 ? 0x8000 : 0)) }
+
+bool CXhcHB03Agent::updateDisplay(void *handle)
+{
+	whb03_out_data cmd = {
+		WHBxx_MAGIC,
+		m_day,
+		{
+			_defract(((m_wheel_mode == WHEEL_A) ? m_state.wc(AXIS_A) : m_state.wc(AXIS_X))),
+			_defract(m_state.wc(AXIS_Y)),
+			_defract(m_state.wc(AXIS_Z)),
+			_defract(((m_wheel_mode == WHEEL_A) ? m_state.mc(AXIS_A) : m_state.mc(AXIS_X))),
+			_defract(m_state.mc(AXIS_Y)),
+			_defract(m_state.mc(AXIS_Z))
+		},
+		(uint16_t)m_state.feedrate_ovr(),
+		(uint16_t)m_state.sspeed_ovr(),
+		(uint16_t)m_state.feedrate(),
+		(uint16_t)m_state.sspeed(),
+
+		0,
+		0
+	};
+
+	switch (m_state.step_mul()) {
+	case 0:
+		cmd.step_mul = 0;
+		break;
+	case 1:
+		cmd.step_mul = 1;
+		break;
+	case 5:
+		cmd.step_mul = 2;
+		break;
+	case 10:
+		cmd.step_mul = 3;
+		break;
+	case 20:
+		cmd.step_mul = 4;
+		break;
+	case 30:
+		cmd.step_mul = 5;
+		break;
+	case 40:
+		cmd.step_mul = 6;
+		break;
+	case 50:
+		cmd.step_mul = 7;
+		break;
+	case 100:
+		cmd.step_mul = 8;
+		break;
+	case 500:
+		cmd.step_mul = 9;
+		break;
+	case 1000:
+		cmd.step_mul = 10;
+		break;
+	}
+
+	if (m_state.units() == UNITS_INCH)
+		cmd.state |= WHB03_STATE_UNIT_INCH;
+
+	size_t cmd_len = sizeof(cmd), max_pkt_len = 8;
+	uint8_t *p = (uint8_t *)&cmd, pkt[128];
+	pkt[0] = 0x06;
+	while (cmd_len) {
+		size_t len = cmd_len > (max_pkt_len - 1) ? (max_pkt_len - 1) : cmd_len;
+		memcpy(&pkt[1], p, len);
+		int rc = hid_send_feature_report((hid_device *)handle, pkt, max_pkt_len);
+		if (rc != max_pkt_len) {
+			return false;
+		}
+		p += len;
+		cmd_len -= len;
+	}
+
+	return true;
+}
+
+bool CXhcHB03Agent::getEvent(void *handle, unsigned int timeout_ms)
+{
+	unsigned char packet[64];
+	int packet_len = sizeof(whb0x_in_data);
+
+	int rc = hid_read_timeout((hid_device *)handle, packet, packet_len, timeout_ms);
+	if (rc < 0)
+		return false;
+
+	if (rc == packet_len) {
+		whb0x_in_data *pkt = (whb0x_in_data *)packet;
+		if (pkt->id == 4 && pkt->xor_day == (m_day ^ pkt->btn_1)) {
+			CXhcDeviceEvent event;
+
+			event.nameof(m_device.devin());
+
+			switch (pkt->wheel_mode) {
+			case 0x11:
+				m_wheel_mode = WHEEL_X;
+				break;
+			case 0x12:
+				m_wheel_mode = WHEEL_Y;
+				break;
+			case 0x13:
+				m_wheel_mode = WHEEL_Z;
+				break;
+			case 0x14:
+				m_wheel_mode = WHEEL_FEED;
+				break;
+			case 0x15:
+				m_wheel_mode = WHEEL_SPINDLE;
+				break;
+			case 0x18:
+				m_wheel_mode = WHEEL_A;
+				break;
+			default:
+				m_wheel_mode = WHEEL_OFF;
+			}
+
+			switch (pkt->btn_1) {
+			case 0x17:
+				event.eventof(btnYes);
+				break;
+			case 0x16:
+				event.eventof(btnNo);
+				break;
+			case 0x01:
+				event.eventof(btnStop);
+				break;
+			case 0x02:
+				event.eventof(btnStartPause);
+				break;
+			case 0x03:
+				event.eventof(btnRewind);
+				break;
+			case 0x04:
+				event.eventof(btnProbeZ);
+				break;
+			case 0x0c:
+				event.eventof(btnGotoZero);
+				break;
+			case 0x06:
+				event.eventof(btnXDiv2);
+				break;
+			case 0x07:
+				event.eventof(btnYDiv2);
+				break;
+			case 0x08:
+				event.eventof(btnSafeZ);
+				break;
+			case 0x09:
+				event.eventof(btnZeroX);
+				break;
+			case 0x0a:
+				event.eventof(btnZeroY);
+				break;
+			case 0x0b:
+				event.eventof(btnZeroZ);
+				break;
+			case 0x05:
+				event.eventof(btnGotoHome);
+				break;
+			case 0x0d:
+				event.eventof(btnStepLeft);
+				break;
+			case 0x0e:
+				event.eventof(btnStepRight);
+				break;
+			case 0x0f:
+				event.eventof(btnFineXYZ);
+				break;
+			case 0x10:
+				event.eventof(btnSpindle);
+				break;
+			}
+			// send button event if happened
+			if (event.eventof()) {
+				if (m_receiver) {
+					m_receiver->xhcEvent(event);
+				}
+				event.eventof(nop);
+			}
+
+			if (pkt->wheel) {
+				event.valueof(pkt->wheel);
+				switch (pkt->wheel_mode) {
+				case 0x11:
+					event.eventof(adjustX);
+					break;
+				case 0x12:
+					event.eventof(adjustY);
+					break;
+				case 0x13:
+					event.eventof(adjustZ);
+					break;
+				case 0x14:
+					event.eventof(adjustFeedRate);
+					break;
+				case 0x15:
+					event.eventof(adjustSpindleSpeed);
+					break;
+				case 0x18:
+					event.eventof(adjustProcessingSpeed);
+					break;
+				}
+				// send wheel event if happened
+				if (event.eventof()) {
+					if (m_receiver) {
+						m_receiver->xhcEvent(event);
+					}
+				}
+			}
+		}
+	}
+	return true;
+}
+
+bool CXhcHB04Agent::updateDisplay(void *handle)
+{
+	whb04_out_data cmd = {
+		WHBxx_MAGIC,
+		m_day,
+		{
+			_defract2(((m_wheel_mode == WHEEL_A) ? m_state.wc(AXIS_A) : m_state.wc(AXIS_X))),
+			_defract2(m_state.wc(AXIS_Y)),
+			_defract2(m_state.wc(AXIS_Z)),
+			_defract2(((m_wheel_mode == WHEEL_A) ? m_state.mc(AXIS_A) : m_state.mc(AXIS_X))),
+			_defract2(m_state.mc(AXIS_Y)),
+			_defract2(m_state.mc(AXIS_Z))
+		},
+		(uint16_t)m_state.feedrate_ovr(),
+		(uint16_t)m_state.sspeed_ovr(),
+		(uint16_t)m_state.feedrate(),
+		(uint16_t)m_state.sspeed(),
+		0,
+		0
+	};
+
+	switch (m_state.step_mul()) {
+	case 0:
+		cmd.step_mul = 0;
+		break;
+	case 1:
+		cmd.step_mul = 1;
+		break;
+	case 5:
+		cmd.step_mul = 2;
+		break;
+	case 10:
+		cmd.step_mul = 3;
+		break;
+	case 20:
+		cmd.step_mul = 4;
+		break;
+	case 30:
+		cmd.step_mul = 5;
+		break;
+	case 40:
+		cmd.step_mul = 6;
+		break;
+	case 50:
+		cmd.step_mul = 7;
+		break;
+	case 100:
+		cmd.step_mul = 8;
+		break;
+	case 500:
+		cmd.step_mul = 9;
+		break;
+	case 1000:
+		cmd.step_mul = 10;
+		break;
+	}
+
+	if (m_state.units() == UNITS_INCH)
+		cmd.state |= WHB04_STATE_UNIT_INCH;
+
+	size_t cmd_len = sizeof(cmd), max_pkt_len = 8;
+	uint8_t *p = (uint8_t *)&cmd, pkt[128];
+	pkt[0] = 0x06;
+	while (cmd_len) {
+		size_t len = cmd_len > (max_pkt_len - 1) ? (max_pkt_len - 1) : cmd_len;
+		memcpy(&pkt[1], p, len);
+		int rc = hid_send_feature_report((hid_device *)handle, pkt, max_pkt_len);
+		if (rc != max_pkt_len) {
+			return false;
+		}
+		p += len;
+		cmd_len -= len;
+	}
+
+	return true;
+}
+
+bool CXhcHB04Agent::getEvent(void *handle, unsigned int timeout_ms)
+{
+	unsigned char packet[64];
+	int packet_len = sizeof(whb0x_in_data);
+
+	int rc = hid_read_timeout((hid_device *)handle, packet, packet_len, timeout_ms);
+	if (rc < 0)
+		return false;
+
+	if (rc == packet_len) {
+		whb0x_in_data *pkt = (whb0x_in_data *)packet;
+		if (pkt->id == 4 && pkt->xor_day == (m_day ^ pkt->btn_1)) {
+			CXhcDeviceEvent event;
+
+			event.nameof(m_device.devin());
+
+			switch (pkt->wheel_mode) {
+			case 0x11:
+				m_wheel_mode = WHEEL_X;
+				break;
+			case 0x12:
+				m_wheel_mode = WHEEL_Y;
+				break;
+			case 0x13:
+				m_wheel_mode = WHEEL_Z;
+				break;
+			case 0x14:
+				m_wheel_mode = WHEEL_FEED;
+				break;
+			case 0x15:
+				m_wheel_mode = WHEEL_SPINDLE;
+				break;
+			case 0x18:
+				m_wheel_mode = WHEEL_A;
+				break;
+			default:
+				m_wheel_mode = WHEEL_OFF;
+			}
+
+			switch (pkt->btn_1) {
+			case 0x17:
+				event.eventof(btnReset);
+				break;
+			case 0x16:
+				event.eventof(btnStop);
+				break;
+			case 0x01:
+				event.eventof(btnGotoZero);
+				break;
+			case 0x02:
+				event.eventof(btnStartPause);
+				break;
+			case 0x03:
+				event.eventof(btnRewind);
+				break;
+			case 0x04:
+				event.eventof(btnProbeZ);
+				break;
+			case 0x0c:
+				event.eventof(btnSpindle);
+				break;
+			case 0x06:
+				switch (pkt->wheel_mode) {
+				case 0x11:
+					event.eventof(btnXDiv2);
+					break;
+				case 0x12:
+					event.eventof(btnYDiv2);
+					break;
+				case 0x13:
+					event.eventof(btnZDiv2);
+					break;
+				}
+				break;
+			case 0x07:
+				switch (pkt->wheel_mode) {
+				case 0x11:
+					event.eventof(btnZeroX);
+					break;
+				case 0x12:
+					event.eventof(btnZeroY);
+					break;
+				case 0x13:
+					event.eventof(btnZeroZ);
+					break;
+				}
+				break;
+			case 0x08:
+				event.eventof(btnSafeZ);
+				break;
+			case 0x09:
+				event.eventof(btnGotoHome);
+				break;
+			case 0x0a:
+				event.eventof(btnMacro1);
+				break;
+			case 0x0b:
+				event.eventof(btnMacro2);
+				break;
+			case 0x05:
+				event.eventof(btnMacro3);
+				break;
+			case 0x0d:
+				event.eventof(btnStepPlusPlus);
+				break;
+			case 0x0e:
+				event.eventof(btnMpgMode);
+				break;
+			case 0x0f:
+				event.eventof(btnMacro6);
+				break;
+			case 0x10:
+				event.eventof(btnMacro7);
+				break;
+			}
+			// send button event if happened
+			if (event.eventof()) {
+				if (m_receiver) {
+					m_receiver->xhcEvent(event);
+				}
+				event.eventof(nop);
+			}
+
+			if (pkt->wheel) {
+				event.valueof(pkt->wheel);
+				switch (pkt->wheel_mode) {
+				case 0x11:
+					event.eventof(adjustX);
+					break;
+				case 0x12:
+					event.eventof(adjustY);
+					break;
+				case 0x13:
+					event.eventof(adjustZ);
+					break;
+				case 0x14:
+					event.eventof(adjustFeedRate);
+					break;
+				case 0x15:
+					event.eventof(adjustSpindleSpeed);
+					break;
+				case 0x18:
+					event.eventof(adjustA);
+					break;
+				}
+				// send wheel event if happened
+				if (event.eventof()) {
+					if (m_receiver) {
+						m_receiver->xhcEvent(event);
+					}
+				}
+			}
+		}
+	}
+	return true;
 }
