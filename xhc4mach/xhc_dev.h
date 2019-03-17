@@ -9,6 +9,7 @@
 #define WHBxx_VID 0x10CE
 #define WHB03_PID 0xEB6E
 #define WHB04_PID 0xEB70
+#define WHB04B6_PID 0xEB93
 
 #pragma pack( push, 1 )
 
@@ -130,8 +131,6 @@ struct whb04_out_data
 };
 #endif
 
-
-
 struct whb0x_in_data
 {
 	uint8_t		id;
@@ -141,6 +140,49 @@ struct whb0x_in_data
 	int8_t		wheel;
 	uint8_t		xor_day;
 };
+
+// it is snatched from there https://github.com/machinekit/machinekit/blob/master/src/hal/user_comps/xhc-whb04b-6/README.md
+struct whb04b6_in_data
+{
+	uint8_t		id;
+	uint8_t		random;
+	uint8_t		btn_1;
+	uint8_t		btn_2;
+	uint8_t		feed_mode;
+	uint8_t		wheel_mode;
+	int8_t		wheel;
+	uint8_t		checksum;
+};
+
+struct whb04b6_out_data
+{
+	/* header of our packet */
+	uint16_t	magic;
+	/* day of the month .. funny i know*/
+	uint8_t		day;
+
+	struct {
+		uint8_t step_mode : 2;
+		uint8_t unknown_mode : 4;
+		uint8_t reset_flag : 1;
+		uint8_t mc_flag : 1;
+	} display;
+
+	struct
+	{
+		uint16_t	p_int;
+		uint16_t	p_frac;
+	} pos[3];
+
+	/* speed */
+	uint16_t	feedrate;
+	uint16_t	sspeed;
+
+	// do we need it ?
+	uint16_t	dummy1;
+	uint16_t	dummy2;
+};
+
 #pragma pack( pop )
 
 //extern __IO uint8_t g_hw_type;
