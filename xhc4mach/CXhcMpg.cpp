@@ -8,6 +8,10 @@ extern "C" {
 }
 #include "xhc_dev.h"
 
+// i dont know why but my WHB03-L uses the same protocol as LHB04 and i don't know how to choose protocol automatically
+// you can enable old protocol here
+#define ENABLE_OLD_HB03 0
+
 unsigned int CM4otionState::allowed_steps[] = { 0, 1, 5, 10, 20, 30, 40, 50, 100, 500, 1000 };
 
 CXhcMpg::CXhcMpg()
@@ -448,7 +452,11 @@ void CXhcMpg::rescan()
 		if (d == m_devs.end()) {
 			switch (dev.typeof()) {
 			case WHB03_PID:
+#if ENABLE_OLD_HB03
 				m_devs.emplace(guid, new CXhcHB03Agent(dev, this));
+#else
+				m_devs.emplace(guid, new CXhcHB04Agent(dev, this));
+#endif
 				list_changed = true;
 				break;
 			case WHB04_PID:
@@ -464,7 +472,11 @@ void CXhcMpg::rescan()
 				m_devs.erase(d);
 				switch (dev.typeof()) {
 				case WHB03_PID:
+#if ENABLE_OLD_HB03
 					m_devs.emplace(guid, new CXhcHB03Agent(dev, this));
+#else
+					m_devs.emplace(guid, new CXhcHB04Agent(dev, this));
+#endif
 					list_changed = true;
 					break;
 				case WHB04_PID:
@@ -553,10 +565,6 @@ void CXhcDeviceAgent::update(const CM4otionState& s)
 
 	m_state_sem.notify();
 }
-
-// i dont know why but my WHB03-L uses the same protocol as LHB04 and i don't know how to choose protocol automatically
-// you can enable old protocol here
-#define ENABLE_OLD_HB03 0
 
 int CXhcDeviceAgent::Run()
 {
