@@ -253,6 +253,18 @@ void CXhcMpg::handleEvent()
 			case btnGotoHome:
 				mcAxisHomeAll(m_ipc);
 				break;
+			case btnZeroX:
+				mcAxisSetPos(m_ipc, AXIS_X, 0.0);
+				break;
+			case btnZeroY:
+				mcAxisSetPos(m_ipc, AXIS_Y, 0.0);
+				break;
+			case btnZeroZ:
+				mcAxisSetPos(m_ipc, AXIS_Z, 0.0);
+				break;
+			case btnProbeZ:
+				mcScriptExecutePrivate(m_ipc, "XHC\\xhc.probez.lua", FALSE);
+				break;
 			case adjustX:
 				jogStart(event->valueof(), 0, 0, 0);
 				break;
@@ -452,11 +464,7 @@ void CXhcMpg::rescan()
 		if (d == m_devs.end()) {
 			switch (dev.typeof()) {
 			case WHB03_PID:
-#if ENABLE_OLD_HB03
 				m_devs.emplace(guid, new CXhcHB03Agent(dev, this));
-#else
-				m_devs.emplace(guid, new CXhcHB04Agent(dev, this));
-#endif
 				list_changed = true;
 				break;
 			case WHB04_PID:
@@ -472,11 +480,7 @@ void CXhcMpg::rescan()
 				m_devs.erase(d);
 				switch (dev.typeof()) {
 				case WHB03_PID:
-#if ENABLE_OLD_HB03
 					m_devs.emplace(guid, new CXhcHB03Agent(dev, this));
-#else
-					m_devs.emplace(guid, new CXhcHB04Agent(dev, this));
-#endif
 					list_changed = true;
 					break;
 				case WHB04_PID:
@@ -601,6 +605,7 @@ int CXhcDeviceAgent::Run()
 
 bool CXhcHB03Agent::updateDisplay(void *handle)
 {
+#if ENABLE_OLD_HB03
 	whb03_out_data cmd = {
 		WHBxx_MAGIC,
 		m_day,
@@ -620,6 +625,26 @@ bool CXhcHB03Agent::updateDisplay(void *handle)
 		0,
 		0
 	};
+#else
+	whb04_out_data cmd = {
+		WHBxx_MAGIC,
+		m_day,
+		{
+			_defract2(((m_wheel_mode == WHEEL_A) ? m_state.wc(AXIS_A) : m_state.wc(AXIS_X))),
+			_defract2(m_state.wc(AXIS_Y)),
+			_defract2(m_state.wc(AXIS_Z)),
+			_defract2(((m_wheel_mode == WHEEL_A) ? m_state.mc(AXIS_A) : m_state.mc(AXIS_X))),
+			_defract2(m_state.mc(AXIS_Y)),
+			_defract2(m_state.mc(AXIS_Z))
+		},
+		(uint16_t)m_state.feedrate_ovr(),
+		(uint16_t)m_state.sspeed_ovr(),
+		(uint16_t)m_state.feedrate(),
+		(uint16_t)m_state.sspeed(),
+		0,
+		0
+	};
+#endif
 
 	switch (m_state.step_mul()) {
 	case 0:
