@@ -9,6 +9,8 @@
 #include <string>
 #include <tuple>
 
+#include "Mach4IPC.h"
+
 // window messages to get events from mpg engine
 #define WM_MPG_LIST_CHANGED (WM_APP + 1)
 #define WM_MPG_STATE_CHANGED (WM_APP + 2)
@@ -531,7 +533,8 @@ private:
 	void handleEvent();
 
 	// read Mach4 state using IPC
-	void updateState();
+	// return false if IPC connection has been lost
+	bool updateState();
 
 	// is Mach4 machine enabled ?
 	bool isMachineEnabled();
@@ -553,4 +556,32 @@ private:
 	void jogStart(double x, double y, double z, double a);
 	// send jog stop signal to MACH 4
 	void jogStop(bool force, long long ms);
+
+	// Mach4IPC imported functions
+	HMODULE m_hinstMachIpc;
+
+	decltype(mcIpcInit)* f_mcIpcInit;
+	decltype(mcCntlGetUnitsCurrent)* f_mcCntlGetUnitsCurrent;
+	decltype(mcAxisGetMachinePos)* f_mcAxisGetMachinePos;
+	decltype(mcAxisGetPos)* f_mcAxisGetPos;
+	decltype(mcAxisHomeAll)* f_mcAxisHomeAll;
+	decltype(mcAxisSetPos)* f_mcAxisSetPos;
+	decltype(mcCntlCycleStart)* f_mcCntlCycleStart;
+	decltype(mcCntlCycleStop)* f_mcCntlCycleStop;
+	decltype(mcCntlGetFRO)* f_mcCntlGetFRO;
+	decltype(mcCntlGetMode)* f_mcCntlGetMode;
+	decltype(mcCntlGetPoundVar)* f_mcCntlGetPoundVar;
+	decltype(mcCntlGotoZero)* f_mcCntlGotoZero;
+	decltype(mcCntlIsInCycle)* f_mcCntlIsInCycle;
+	decltype(mcCntlReset)* f_mcCntlReset;
+	decltype(mcCntlRewindFile)* f_mcCntlRewindFile;
+	decltype(mcIpcCleanup)* f_mcIpcCleanup;
+	decltype(mcJogIncStart)* f_mcJogIncStart;
+	decltype(mcJogVelocityStart)* f_mcJogVelocityStart;
+	decltype(mcJogVelocityStop)* f_mcJogVelocityStop;
+	decltype(mcScriptExecutePrivate)* f_mcScriptExecutePrivate;
+	decltype(mcSignalGetHandle)* f_mcSignalGetHandle;
+	decltype(mcSignalGetState)* f_mcSignalGetState;
+	decltype(mcSpindleGetMotorRPM)* f_mcSpindleGetMotorRPM;
+	decltype(mcSpindleGetOverride)* f_mcSpindleGetOverride;
 };

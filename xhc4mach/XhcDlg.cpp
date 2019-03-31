@@ -214,6 +214,7 @@ void CXhcMpgDlg::OnBnClickedClose()
 
 void CXhcMpgDlg::OnClickedMach4Connect()
 {
+	m_mpg.close();
 	m_mpg.open(GetSafeHwnd());
 }
 

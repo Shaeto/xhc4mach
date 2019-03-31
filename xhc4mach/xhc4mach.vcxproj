@@ -98,7 +98,7 @@
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
-      <AdditionalDependencies>Setupapi.lib;$(OutDir)/Mach4IPC.lib</AdditionalDependencies>
+      <AdditionalDependencies>Setupapi.lib</AdditionalDependencies>
     </Link>
     <Midl>
       <MkTypLibCompatible>false</MkTypLibCompatible>
@@ -155,7 +155,7 @@
       <SubSystem>Windows</SubSystem>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
-      <AdditionalDependencies>Setupapi.lib;$(OutDir)/Mach4IPC.lib</AdditionalDependencies>
+      <AdditionalDependencies>Setupapi.lib</AdditionalDependencies>
     </Link>
     <Midl>
       <MkTypLibCompatible>false</MkTypLibCompatible>
@@ -224,9 +224,6 @@
   <ItemGroup>
     <ProjectReference Include="..\hidapi\hidapi.vcxproj">
       <Project>{a107c21c-418a-4697-bb10-20c3aa60e2e4}</Project>
-    </ProjectReference>
-    <ProjectReference Include="..\mach4ipc\mach4ipc.vcxproj">
-      <Project>{5450b3a2-e4a2-4581-9313-deb681ad396e}</Project>
     </ProjectReference>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

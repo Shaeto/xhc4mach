@@ -1,6 +1,5 @@
 #include "stdafx.h"
 #include "CXhcMpg.h"
-#include "Mach4IPC.h"
 #include <regex>
 
 extern "C" {
@@ -29,6 +28,8 @@ CXhcMpg::~CXhcMpg()
 	close();
 }
 
+#define IMPORT3MACH(name) { f_##name = (decltype(##name)*) GetProcAddress(m_hinstMachIpc, #name); if (!f_##name) throw std::runtime_error("Failed to import function " #name); }
+
 bool CXhcMpg::open(HWND hParent)
 {
 	if (m_opened)
@@ -38,8 +39,45 @@ bool CXhcMpg::open(HWND hParent)
 	m_cancelled = false;
 	m_finished = false;
 
+	m_hinstMachIpc = LoadLibrary(_T("Mach4IPC.dll"));
+	if (!m_hinstMachIpc) {
+		// todo: say something to user
+		return false;
+	}
+
+	try {
+		IMPORT3MACH(mcIpcInit);
+		IMPORT3MACH(mcCntlGetUnitsCurrent);
+		IMPORT3MACH(mcAxisGetMachinePos);
+		IMPORT3MACH(mcAxisGetPos);
+		IMPORT3MACH(mcAxisHomeAll);
+		IMPORT3MACH(mcAxisSetPos);
+		IMPORT3MACH(mcCntlCycleStart);
+		IMPORT3MACH(mcCntlCycleStop);
+		IMPORT3MACH(mcCntlGetFRO);
+		IMPORT3MACH(mcCntlGetMode);
+		IMPORT3MACH(mcCntlGetPoundVar);
+		IMPORT3MACH(mcCntlGotoZero);
+		IMPORT3MACH(mcCntlIsInCycle);
+		IMPORT3MACH(mcCntlReset);
+		IMPORT3MACH(mcCntlRewindFile);
+		IMPORT3MACH(mcIpcCleanup);
+		IMPORT3MACH(mcJogIncStart);
+		IMPORT3MACH(mcJogVelocityStart);
+		IMPORT3MACH(mcJogVelocityStop);
+		IMPORT3MACH(mcScriptExecutePrivate);
+		IMPORT3MACH(mcSignalGetHandle);
+		IMPORT3MACH(mcSignalGetState);
+		IMPORT3MACH(mcSpindleGetMotorRPM);
+		IMPORT3MACH(mcSpindleGetOverride);
+	}
+	catch (const std::exception & e) {
+		// todo: message !!!
+		return false;
+	}
+
 	// try to connect to Mach 4 instance using mach4ipc interface
-	if (mcIpcInit("localhost") != 0)
+	if (f_mcIpcInit("localhost") != 0)
 		return false;
 
 	// it seems mach 4 ipc handle is always = 0
@@ -47,7 +85,7 @@ bool CXhcMpg::open(HWND hParent)
 
 	// get mach 4 units mode
 	int units = 0;
-	if (mcCntlGetUnitsCurrent(m_ipc, &units) == 0) {
+	if (f_mcCntlGetUnitsCurrent(m_ipc, &units) == 0) {
 		if (units == 200) {
 			m_state.units(UNITS_INCH);
 		}
@@ -85,16 +123,18 @@ void CXhcMpg::close()
 		}
 	}
 	// destroy connection to Mach 4 IPC
-	mcIpcCleanup();
+	f_mcIpcCleanup();
+	FreeLibrary(m_hinstMachIpc);
+	m_hinstMachIpc = NULL;
 	m_opened = false;
 }
 
 bool CXhcMpg::isMachineEnabled()
 {
 	HMCSIG h;
-	if (mcSignalGetHandle(m_ipc, OSIG_MACHINE_ENABLED, &h) == 0) {
+	if (f_mcSignalGetHandle(m_ipc, OSIG_MACHINE_ENABLED, &h) == 0) {
 		BOOL state;
-		if (mcSignalGetState(h, &state) == 0) {
+		if (f_mcSignalGetState(h, &state) == 0) {
 			return state == TRUE;
 		}
 	}
@@ -104,9 +144,9 @@ bool CXhcMpg::isMachineEnabled()
 bool CXhcMpg::isJogEnabled()
 {
 	HMCSIG h;
-	if (mcSignalGetHandle(m_ipc, OSIG_JOG_ENABLED, &h) == 0) {
+	if (f_mcSignalGetHandle(m_ipc, OSIG_JOG_ENABLED, &h) == 0) {
 		BOOL state;
-		if (mcSignalGetState(h, &state) == 0) {
+		if (f_mcSignalGetState(h, &state) == 0) {
 			return state == TRUE;
 		}
 	}
@@ -116,9 +156,9 @@ bool CXhcMpg::isJogEnabled()
 bool CXhcMpg::isJogCont()
 {
 	HMCSIG h;
-	if (mcSignalGetHandle(m_ipc, OSIG_JOG_CONT, &h) == 0) {
+	if (f_mcSignalGetHandle(m_ipc, OSIG_JOG_CONT, &h) == 0) {
 		BOOL state;
-		if (mcSignalGetState(h, &state) == 0) {
+		if (f_mcSignalGetState(h, &state) == 0) {
 			return state == TRUE;
 		}
 	}
@@ -128,9 +168,9 @@ bool CXhcMpg::isJogCont()
 bool CXhcMpg::isJogInc()
 {
 	HMCSIG h;
-	if (mcSignalGetHandle(m_ipc, OSIG_JOG_INC, &h) == 0) {
+	if (f_mcSignalGetHandle(m_ipc, OSIG_JOG_INC, &h) == 0) {
 		BOOL state;
-		if (mcSignalGetState(h, &state) == 0) {
+		if (f_mcSignalGetState(h, &state) == 0) {
 			return state == TRUE;
 		}
 	}
@@ -150,19 +190,19 @@ void CXhcMpg::jogStart(double x, double y, double z, double a)
 		// mcJogSetAccel ???
 		// mcJogGetInc ??
 		if (x != 0) {
-			mcJogIncStart(m_ipc, AXIS_X, x);
+			f_mcJogIncStart(m_ipc, AXIS_X, x);
 			m_jog_timer[AXIS_X] = time_to_stop;
 		}
 		if (y != 0) {
-			mcJogIncStart(m_ipc, AXIS_Y, y);
+			f_mcJogIncStart(m_ipc, AXIS_Y, y);
 			m_jog_timer[AXIS_Y] = time_to_stop;
 		}
 		if (z != 0) {
-			mcJogIncStart(m_ipc, AXIS_Z, z);
+			f_mcJogIncStart(m_ipc, AXIS_Z, z);
 			m_jog_timer[AXIS_Z] = time_to_stop;
 		}
 		if (a != 0) {
-			mcJogIncStart(m_ipc, AXIS_A, a);
+			f_mcJogIncStart(m_ipc, AXIS_A, a);
 			m_jog_timer[AXIS_A] = time_to_stop;
 		}
 	}
@@ -171,19 +211,19 @@ void CXhcMpg::jogStart(double x, double y, double z, double a)
 		// mcJogSetRate(m_ipc, X_AXIS, ????)
 		// mcJogSetAccel ???
 		if (x != 0) {
-			mcJogVelocityStart(m_ipc, AXIS_X, x > 0.0 ? MC_JOG_POS : MC_JOG_NEG);
+			f_mcJogVelocityStart(m_ipc, AXIS_X, x > 0.0 ? MC_JOG_POS : MC_JOG_NEG);
 			m_jog_timer[AXIS_X] = time_to_stop;
 		}
 		if (y != 0) {
-			mcJogVelocityStart(m_ipc, AXIS_Y, y > 0.0 ? MC_JOG_POS : MC_JOG_NEG);
+			f_mcJogVelocityStart(m_ipc, AXIS_Y, y > 0.0 ? MC_JOG_POS : MC_JOG_NEG);
 			m_jog_timer[AXIS_Y] = time_to_stop;
 		}
 		if (z != 0) {
-			mcJogVelocityStart(m_ipc, AXIS_Z, z > 0.0 ? MC_JOG_POS : MC_JOG_NEG);
+			f_mcJogVelocityStart(m_ipc, AXIS_Z, z > 0.0 ? MC_JOG_POS : MC_JOG_NEG);
 			m_jog_timer[AXIS_Z] = time_to_stop;
 		}
 		if (a != 0) {
-			mcJogVelocityStart(m_ipc, AXIS_A, a > 0.0 ? MC_JOG_POS : MC_JOG_NEG);
+			f_mcJogVelocityStart(m_ipc, AXIS_A, a > 0.0 ? MC_JOG_POS : MC_JOG_NEG);
 			m_jog_timer[AXIS_A] = time_to_stop;
 		}
 	}
@@ -207,7 +247,7 @@ void CXhcMpg::jogStop(bool force, long long ms)
 						// mcJogIncStop(m_ipc, a, 0.1); // no ideas what does mean incr there
 					}
 					else {
-						mcJogVelocityStop(m_ipc, a);
+						f_mcJogVelocityStop(m_ipc, a);
 					}
 					m_jog_timer[a] = 0;
 				}
@@ -228,42 +268,42 @@ void CXhcMpg::handleEvent()
 			auto event = m_events.begin();
 			switch (event->eventof()) {
 			case btnStop:
-				mcCntlCycleStop(m_ipc);
+				f_mcCntlCycleStop(m_ipc);
 				break;
 			case btnStartPause:
 			{
 				BOOL cycle;
-				if (mcCntlIsInCycle(m_ipc, &cycle) == 0) {
+				if (f_mcCntlIsInCycle(m_ipc, &cycle) == 0) {
 					if (!cycle)
-						mcCntlCycleStart(m_ipc);
+						f_mcCntlCycleStart(m_ipc);
 					else
-						mcCntlCycleStop(m_ipc);
+						f_mcCntlCycleStop(m_ipc);
 				}
 			}
 			break;
 			case btnReset:
-				mcCntlReset(m_ipc);
+				f_mcCntlReset(m_ipc);
 				break;
 			case btnRewind:
-				mcCntlRewindFile(m_ipc);
+				f_mcCntlRewindFile(m_ipc);
 				break;
 			case btnGotoZero:
-				mcCntlGotoZero(m_ipc);
+				f_mcCntlGotoZero(m_ipc);
 				break;
 			case btnGotoHome:
-				mcAxisHomeAll(m_ipc);
+				f_mcAxisHomeAll(m_ipc);
 				break;
 			case btnZeroX:
-				mcAxisSetPos(m_ipc, AXIS_X, 0.0);
+				f_mcAxisSetPos(m_ipc, AXIS_X, 0.0);
 				break;
 			case btnZeroY:
-				mcAxisSetPos(m_ipc, AXIS_Y, 0.0);
+				f_mcAxisSetPos(m_ipc, AXIS_Y, 0.0);
 				break;
 			case btnZeroZ:
-				mcAxisSetPos(m_ipc, AXIS_Z, 0.0);
+				f_mcAxisSetPos(m_ipc, AXIS_Z, 0.0);
 				break;
 			case btnProbeZ:
-				mcScriptExecutePrivate(m_ipc, "XHC\\xhc.probez.lua", FALSE);
+				f_mcScriptExecutePrivate(m_ipc, "XHC\\xhc.probez.lua", FALSE);
 				break;
 			case adjustX:
 				jogStart(event->valueof(), 0, 0, 0);
@@ -299,34 +339,40 @@ CM4otionState CXhcMpg::state() const
 	return m_state;
 }
 
-void CXhcMpg::updateState()
+bool CXhcMpg::updateState()
 {
 	CM4otionState s;
 	double x, y, z, a;
-	int rc;
+	int rc, mode;
 
-	rc = mcAxisGetPos(m_ipc, AXIS_X, &x);
-	rc = mcAxisGetPos(m_ipc, AXIS_Y, &y);
-	rc = mcAxisGetPos(m_ipc, AXIS_Z, &z);
-	rc = mcAxisGetPos(m_ipc, AXIS_A, &a);
+	rc = f_mcCntlGetMode(m_ipc, &mode);
+	if (rc) {
+		// check specific code ?
+		return false;
+	}
+
+	rc = f_mcAxisGetPos(m_ipc, AXIS_X, &x);
+	rc = f_mcAxisGetPos(m_ipc, AXIS_Y, &y);
+	rc = f_mcAxisGetPos(m_ipc, AXIS_Z, &z);
+	rc = f_mcAxisGetPos(m_ipc, AXIS_A, &a);
 	s.wc(x, y, z, a);
 
-	rc = mcAxisGetMachinePos(m_ipc, AXIS_X, &x);
-	rc = mcAxisGetMachinePos(m_ipc, AXIS_Y, &y);
-	rc = mcAxisGetMachinePos(m_ipc, AXIS_Z, &z);
-	rc = mcAxisGetMachinePos(m_ipc, AXIS_A, &a);
+	rc = f_mcAxisGetMachinePos(m_ipc, AXIS_X, &x);
+	rc = f_mcAxisGetMachinePos(m_ipc, AXIS_Y, &y);
+	rc = f_mcAxisGetMachinePos(m_ipc, AXIS_Z, &z);
+	rc = f_mcAxisGetMachinePos(m_ipc, AXIS_A, &a);
 	s.mc(x, y, z, a);
 
-	mcSpindleGetOverride(m_ipc, &x);
+	f_mcSpindleGetOverride(m_ipc, &x);
 	s.sspeed_ovr((unsigned int)abs((int)x));
 
-	mcSpindleGetMotorRPM(m_ipc, &x);
+	f_mcSpindleGetMotorRPM(m_ipc, &x);
 	s.sspeed((unsigned int)abs((int)x));
 
-	mcCntlGetFRO(m_ipc, &x);
+	f_mcCntlGetFRO(m_ipc, &x);
 	s.feedrate_ovr((unsigned int)abs((int)x));
 
-	mcCntlGetPoundVar(m_ipc, SV_FEEDRATE, &x);
+	f_mcCntlGetPoundVar(m_ipc, SV_FEEDRATE, &x);
 	s.feedrate((unsigned int)abs((int)x));
 
 	if (m_state.update(s)) {
@@ -338,6 +384,7 @@ void CXhcMpg::updateState()
 	for (auto const&[guid, dev] : m_devs) {
 		dev->update(m_state);
 	}
+	return true;
 }
 
 void CXhcMpg::run()
@@ -357,16 +404,21 @@ void CXhcMpg::run()
 		// refresh devices displays every X milliseconds
 		if (std::chrono::system_clock::now() > updateTime) {
 			updateTime = std::chrono::system_clock::now() + std::chrono::milliseconds(500);
-			updateState();
+			if (!updateState()) {
+				// it seems we lost connection to MACH
+				cancel();
+			}
 		}
-		std::chrono::time_point<std::chrono::system_clock> jogTimerEnd = std::chrono::system_clock::now();
+		if (!cancelled()) {
+			std::chrono::time_point<std::chrono::system_clock> jogTimerEnd = std::chrono::system_clock::now();
 
-		long long jog_delta = std::chrono::duration_cast<std::chrono::milliseconds>(jogTimerEnd - jogTimerBegin).count();
-		if (jog_delta) {
-			jogStop(false, jog_delta);
+			long long jog_delta = std::chrono::duration_cast<std::chrono::milliseconds>(jogTimerEnd - jogTimerBegin).count();
+			if (jog_delta) {
+				jogStop(false, jog_delta);
+			}
+
+			jogTimerBegin = std::chrono::system_clock::now();
 		}
-
-		jogTimerBegin = std::chrono::system_clock::now();
 	}
 	jogStop(true, 0);
 	m_finished = true;
