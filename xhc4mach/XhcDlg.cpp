@@ -74,7 +74,14 @@ BOOL CXhcMpgDlg::OnInitDialog()
 	NotificationFilter.dbcc_classguid = GUID_DEVCLASS_HIDCLASS;
 
 	m_hUsbDevNotify = RegisterDeviceNotification(GetSafeHwnd(), &NotificationFilter, DEVICE_NOTIFY_WINDOW_HANDLE);
-	m_mpg.open(GetSafeHwnd());
+
+	try {
+		m_mpg.open(GetSafeHwnd());
+	}
+	catch (const std::exception& e) {
+		AfxMessageBox(ATL::CA2W(e.what()), MB_ICONERROR | MB_OK);
+		PostQuitMessage(-1);
+	}
 
 	return TRUE;  // return TRUE  unless you set the focus to a control
 }
@@ -215,7 +222,13 @@ void CXhcMpgDlg::OnBnClickedClose()
 void CXhcMpgDlg::OnClickedMach4Connect()
 {
 	m_mpg.close();
-	m_mpg.open(GetSafeHwnd());
+	try {
+		m_mpg.open(GetSafeHwnd());
+	}
+	catch (const std::exception& e) {
+		AfxMessageBox(ATL::CA2W(e.what()), MB_ICONERROR|MB_OK);
+		PostQuitMessage(-1);
+	}
 }
 
 

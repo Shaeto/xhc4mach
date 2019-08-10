@@ -39,42 +39,42 @@ bool CXhcMpg::open(HWND hParent)
 	m_cancelled = false;
 	m_finished = false;
 
-	m_hinstMachIpc = LoadLibrary(_T("Mach4IPC.dll"));
-	if (!m_hinstMachIpc) {
-		// todo: say something to user
-		return false;
+	const TCHAR * knownMach4Paths[] = { _T("Mach4IPC.dll"), _T("C:\\Mach4Industrial\\Mach4IPC.dll"), _T("C:\\Mach4Hobby\\Mach4IPC.dll") };
+
+	for (unsigned i = 0; i < sizeof(knownMach4Paths) / sizeof(const TCHAR *); i++) {
+		m_hinstMachIpc = LoadLibrary(knownMach4Paths[i]);
+		if (m_hinstMachIpc)
+			break;
 	}
 
-	try {
-		IMPORT3MACH(mcIpcInit);
-		IMPORT3MACH(mcCntlGetUnitsCurrent);
-		IMPORT3MACH(mcAxisGetMachinePos);
-		IMPORT3MACH(mcAxisGetPos);
-		IMPORT3MACH(mcAxisHomeAll);
-		IMPORT3MACH(mcAxisSetPos);
-		IMPORT3MACH(mcCntlCycleStart);
-		IMPORT3MACH(mcCntlCycleStop);
-		IMPORT3MACH(mcCntlGetFRO);
-		IMPORT3MACH(mcCntlGetMode);
-		IMPORT3MACH(mcCntlGetPoundVar);
-		IMPORT3MACH(mcCntlGotoZero);
-		IMPORT3MACH(mcCntlIsInCycle);
-		IMPORT3MACH(mcCntlReset);
-		IMPORT3MACH(mcCntlRewindFile);
-		IMPORT3MACH(mcIpcCleanup);
-		IMPORT3MACH(mcJogIncStart);
-		IMPORT3MACH(mcJogVelocityStart);
-		IMPORT3MACH(mcJogVelocityStop);
-		IMPORT3MACH(mcScriptExecutePrivate);
-		IMPORT3MACH(mcSignalGetHandle);
-		IMPORT3MACH(mcSignalGetState);
-		IMPORT3MACH(mcSpindleGetMotorRPM);
-		IMPORT3MACH(mcSpindleGetOverride);
+	if (!m_hinstMachIpc) {
+		throw std::exception("Failed to load Mach4IPC.dll, please put application to Mach4 folder!");
 	}
-	catch (const std::exception & e) {
-		// todo: message !!!
-		return false;
-	}
+
+	IMPORT3MACH(mcIpcInit);
+	IMPORT3MACH(mcCntlGetUnitsCurrent);
+	IMPORT3MACH(mcAxisGetMachinePos);
+	IMPORT3MACH(mcAxisGetPos);
+	IMPORT3MACH(mcAxisHomeAll);
+	IMPORT3MACH(mcAxisSetPos);
+	IMPORT3MACH(mcCntlCycleStart);
+	IMPORT3MACH(mcCntlCycleStop);
+	IMPORT3MACH(mcCntlGetFRO);
+	IMPORT3MACH(mcCntlGetMode);
+	IMPORT3MACH(mcCntlGetPoundVar);
+	IMPORT3MACH(mcCntlGotoZero);
+	IMPORT3MACH(mcCntlIsInCycle);
+	IMPORT3MACH(mcCntlReset);
+	IMPORT3MACH(mcCntlRewindFile);
+	IMPORT3MACH(mcIpcCleanup);
+	IMPORT3MACH(mcJogIncStart);
+	IMPORT3MACH(mcJogVelocityStart);
+	IMPORT3MACH(mcJogVelocityStop);
+	IMPORT3MACH(mcScriptExecutePrivate);
+	IMPORT3MACH(mcSignalGetHandle);
+	IMPORT3MACH(mcSignalGetState);
+	IMPORT3MACH(mcSpindleGetMotorRPM);
+	IMPORT3MACH(mcSpindleGetOverride);
 
 	// try to connect to Mach 4 instance using mach4ipc interface
 	if (f_mcIpcInit("localhost") != 0)
@@ -122,6 +122,8 @@ void CXhcMpg::close()
 			delete t;
 		}
 	}
+	m_devs.clear();
+
 	// destroy connection to Mach 4 IPC
 	f_mcIpcCleanup();
 	FreeLibrary(m_hinstMachIpc);
