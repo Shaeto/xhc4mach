@@ -20,6 +20,8 @@
 #define IDC_WC_POS_AXIS_Z               1010
 #define IDC_POS_AXIS_A2                 1011
 #define IDC_WC_POS_AXIS_A               1011
+#define IDC_XHC_EVENT_LIST              1012
+#define IDC_EVENT_LIST                  1012
 
 // Next default values for new objects
 // 

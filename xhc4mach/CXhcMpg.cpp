@@ -13,7 +13,7 @@ extern "C" {
 
 unsigned int CM4otionState::allowed_steps[] = { 0, 1, 5, 10, 20, 30, 40, 50, 100, 500, 1000 };
 
-CXhcMpg::CXhcMpg()
+CXhcMpg::CXhcMpg() : m_semaphore{0}
 {
 	m_opened = false;
 	m_cancelled = false;
@@ -21,6 +21,36 @@ CXhcMpg::CXhcMpg()
 	m_jog_timer[AXIS_X] = m_jog_timer[AXIS_Y] = m_jog_timer[AXIS_Z] = m_jog_timer[AXIS_A] = 0;
 	m_ipc = 0;
 	m_hParent = 0;
+
+	f_mcIpcInit = NULL;
+	f_mcCntlGetUnitsCurrent = NULL;
+	f_mcAxisGetMachinePos = NULL;
+	f_mcAxisGetPos = NULL;
+	f_mcAxisHomeAll = NULL;
+	f_mcAxisSetPos = NULL;
+	f_mcCntlCycleStart = NULL;
+	f_mcCntlCycleStop = NULL;
+	f_mcCntlGetFRO = NULL;
+	f_mcCntlGetMode = NULL;
+	f_mcCntlGetPoundVar = NULL;
+	f_mcCntlGotoZero = NULL;
+	f_mcCntlIsInCycle = NULL;
+	f_mcCntlReset = NULL;
+	f_mcCntlRewindFile = NULL;
+	f_mcIpcCleanup = NULL;
+	f_mcJogIncStart = NULL;
+	f_mcJogIncStop = NULL;
+	f_mcJogVelocityStart = NULL;
+	f_mcJogVelocityStop = NULL;
+	f_mcJogIsJogging = NULL;
+	f_mcJogGetInc = NULL;
+	f_mcScriptExecutePrivate = NULL;
+	f_mcSignalGetHandle = NULL;
+	f_mcSignalGetState = NULL;
+	f_mcSpindleGetMotorRPM = NULL;
+	f_mcSpindleGetOverride = NULL;
+
+	m_hinstMachIpc = 0;
 }
 
 CXhcMpg::~CXhcMpg()
@@ -39,7 +69,12 @@ bool CXhcMpg::open(HWND hParent)
 	m_cancelled = false;
 	m_finished = false;
 
-	const TCHAR * knownMach4Paths[] = { _T("Mach4IPC.dll"), _T("C:\\Mach4Industrial\\Mach4IPC.dll"), _T("C:\\Mach4Hobby\\Mach4IPC.dll") };
+#ifdef _WIN64
+	const TCHAR * knownMach4Paths[] = { _T("Mach4IPC-x64.dll"), _T("C:\\Mach4Industrial\\Mach4IPC-x64.dll"), _T("C:\\Mach4Hobby\\Mach4IPC-x64.dll") };
+#else
+	const TCHAR* knownMach4Paths[] = { _T("Mach4IPC.dll"), _T("C:\\Mach4Industrial\\Mach4IPC.dll"), _T("C:\\Mach4Hobby\\Mach4IPC.dll") };
+#endif
+
 
 	for (unsigned i = 0; i < sizeof(knownMach4Paths) / sizeof(const TCHAR *); i++) {
 		m_hinstMachIpc = LoadLibrary(knownMach4Paths[i]);
@@ -67,14 +102,20 @@ bool CXhcMpg::open(HWND hParent)
 	IMPORT3MACH(mcCntlReset);
 	IMPORT3MACH(mcCntlRewindFile);
 	IMPORT3MACH(mcIpcCleanup);
+	IMPORT3MACH(mcJogIsJogging);
 	IMPORT3MACH(mcJogIncStart);
+	IMPORT3MACH(mcJogIncStop);
 	IMPORT3MACH(mcJogVelocityStart);
 	IMPORT3MACH(mcJogVelocityStop);
+	IMPORT3MACH(mcJogGetInc);
 	IMPORT3MACH(mcScriptExecutePrivate);
 	IMPORT3MACH(mcSignalGetHandle);
 	IMPORT3MACH(mcSignalGetState);
 	IMPORT3MACH(mcSpindleGetMotorRPM);
 	IMPORT3MACH(mcSpindleGetOverride);
+
+	// scan list of pluged usb devices to find XHC pendants
+	rescan();
 
 	// try to connect to Mach 4 instance using mach4ipc interface
 	if (f_mcIpcInit("localhost") != 0)
@@ -94,11 +135,10 @@ bool CXhcMpg::open(HWND hParent)
 		}
 	}
 
-	// scan list of pluged usb devices to find XHC pendants
-	rescan();
-
 	// start main code in separated thread
-	m_worker = std::thread(Magent, this);
+	m_worker = std::thread([this]() {
+			run();
+		});
 	m_opened = true;
 
 	// return to caller
@@ -119,7 +159,6 @@ void CXhcMpg::close()
 	for (auto const &[path, t] : m_devs) {
 		if (t) {
 			t->stop();
-			delete t;
 		}
 	}
 	m_devs.clear();
@@ -170,7 +209,9 @@ bool CXhcMpg::isJogCont()
 bool CXhcMpg::isJogInc()
 {
 	HMCSIG h;
-	if (f_mcSignalGetHandle(m_ipc, OSIG_JOG_INC, &h) == 0) {
+
+	int rc = f_mcSignalGetHandle(m_ipc, OSIG_JOG_INC, &h);
+	if (rc == 0) {
 		BOOL state;
 		if (f_mcSignalGetState(h, &state) == 0) {
 			return state == TRUE;
@@ -179,7 +220,7 @@ bool CXhcMpg::isJogInc()
 	throw std::exception("Mach4IPC connection error");
 }
 
-void CXhcMpg::jogStart(double x, double y, double z, double a)
+void CXhcMpg::jogMove(double x, double y, double z, double a)
 {
 	long long time_to_stop = 100;
 	bool inc_jog = isJogInc();
@@ -191,8 +232,41 @@ void CXhcMpg::jogStart(double x, double y, double z, double a)
 		// mcJogSetInc(m_ipc, X_AXIS, ????)
 		// mcJogSetAccel ???
 		// mcJogGetInc ??
+
+		// mcMotionGetIncPos
+		// mcJogIsJogging
+		// mcJogGetInc
+
+		auto _inc_move = [this, _increment = 0.0, _is_jogging = FALSE](int axisid, double v) mutable
+		{
+			if (v == 0.0)
+				return 0.0;
+
+			if (f_mcJogGetInc(m_ipc, axisid, &_increment) != MERROR_NOERROR)
+				return 0.0;
+
+			_increment *= v > 0 ? 1.0 : -1.0;
+#if 0
+			if (f_mcJogIsJogging(m_ipc, axisid, &_is_jogging) != MERROR_NOERROR)
+				return 0.0;
+
+			if (_is_jogging) {
+				double _val;
+				if (f_mcMotionGetIncPos(m_ipc, axisid, &_val) != MERROR_NOERROR)
+					return 0.0;
+			}
+			else {
+				f_mcJogIncStart(m_ipc, axisid, _increment);
+			}
+#endif
+			f_mcJogIncStart(m_ipc, axisid, _increment);
+
+			return _increment;
+		};
+
+		double inc_vector[4] = { 0.0, 0.0, 0.0, 0.0 };
 		if (x != 0) {
-			f_mcJogIncStart(m_ipc, AXIS_X, x);
+			inc_vector[0] = _inc_move(AXIS_X, x);
 			m_jog_timer[AXIS_X] = time_to_stop;
 		}
 		if (y != 0) {
@@ -234,8 +308,6 @@ void CXhcMpg::jogStart(double x, double y, double z, double a)
 void CXhcMpg::jogStop(bool force, long long ms)
 {
 	try {
-		bool is_inc = isJogInc();
-
 		unsigned int axis[4] = { AXIS_X, AXIS_Y, AXIS_Z, AXIS_A };
 
 		for (unsigned int i = 0; i < 4; i++) {
@@ -245,8 +317,12 @@ void CXhcMpg::jogStop(bool force, long long ms)
 					m_jog_timer[a] -= ms;
 				}
 				else {
+					bool is_inc = isJogInc();
 					if (is_inc) {
-						// mcJogIncStop(m_ipc, a, 0.1); // no ideas what does mean incr there
+						double _increment;
+						if (f_mcJogGetInc(m_ipc, a, &_increment) != MERROR_NOERROR)
+							_increment = 0.1;
+						f_mcJogIncStop(m_ipc, a, _increment); // no ideas what does mean incr there
 					}
 					else {
 						f_mcJogVelocityStop(m_ipc, a);
@@ -256,18 +332,25 @@ void CXhcMpg::jogStop(bool force, long long ms)
 			}
 		}
 	}
-	catch (const std::exception& e) {
+	catch ([[maybe_unused]] const std::exception& e) {
 
 	}
 }
 
 void CXhcMpg::handleEvent()
 {
-	std::lock_guard<std::mutex> lock(m_event_mutex);
-
 	try {
-		while (m_events.begin() != m_events.end()) {
-			auto event = m_events.begin();
+		while (1) {
+			std::unique_ptr<CXhcDeviceEvent> event;
+			{
+				std::lock_guard<std::mutex> lock(m_event_mutex);
+
+				if (m_events.size() == 0)
+					break;
+
+				event = std::move(m_events.front());
+				m_events.pop_front();
+			}
 			switch (event->eventof()) {
 			case btnStop:
 				f_mcCntlCycleStop(m_ipc);
@@ -308,16 +391,16 @@ void CXhcMpg::handleEvent()
 				f_mcScriptExecutePrivate(m_ipc, "XHC\\xhc.probez.lua", FALSE);
 				break;
 			case adjustX:
-				jogStart(event->valueof(), 0, 0, 0);
+				jogMove(event->valueof(), 0, 0, 0);
 				break;
 			case adjustY:
-				jogStart(0, event->valueof(), 0, 0);
+				jogMove(0, event->valueof(), 0, 0);
 				break;
 			case adjustZ:
-				jogStart(0, 0, event->valueof(), 0);
+				jogMove(0, 0, event->valueof(), 0);
 				break;
 			case adjustA:
-				jogStart(0, 0, 0, event->valueof());
+				jogMove(0, 0, 0, event->valueof());
 				break;
 			case btnStepPlusPlus:
 			case btnStepRight:
@@ -327,10 +410,9 @@ void CXhcMpg::handleEvent()
 				m_state.step_mul_down();
 				break;
 			}
-			m_events.pop_front();
 		}
 	}
-	catch (const std::exception& e) {
+	catch ([[maybe_unused]] const std::exception& e) {
 
 	}
 }
@@ -400,7 +482,7 @@ void CXhcMpg::run()
 
 	while (!cancelled()) {
 		// wait for key/wheel events from plugged XHC devices
-		if (m_semaphore.wait_for(std::chrono::milliseconds(100))) {
+		if (m_semaphore.try_acquire_for(std::chrono::milliseconds(100))) {
 			handleEvent();
 		}
 		// refresh devices displays every X milliseconds
@@ -430,16 +512,16 @@ void CXhcMpg::run()
 	}
 }
 
-void CXhcMpg::xhcEvent(const CXhcDeviceEvent& event)
+void CXhcMpg::xhcEvent(std::unique_ptr<CXhcDeviceEvent> pevent)
 {
 	std::lock_guard<std::mutex> lock(m_event_mutex);
-	m_events.push_back(event);
-	m_semaphore.notify();
+	m_events.emplace_back(std::move(pevent));
+	m_semaphore.release();
 }
 
 void CXhcMpg::rescan()
 {
-	std::regex re("^(.+)\\&col\\d{2}(#.+)\\&\\d+(#\\{.*)$", std::regex::ECMAScript | std::regex::optimize);
+	std::regex re("^(.+)\\&Col\\d{2}(#.+)\\&\\d+(#\\{.*)$", std::regex::ECMAScript | std::regex::optimize);
 	std::map<std::string, CXhcDevice> cur_xhc_devs;
 	struct hid_device_info *devs, *cur_dev;
 
@@ -453,24 +535,24 @@ void CXhcMpg::rescan()
 			if (std::regex_search(path, match, re) && match.size()) {
 				std::string guid = match[1].str() + match[2].str() + match[3].str();
 
-				auto& dev1 = cur_xhc_devs.find(guid);
+				const auto& dev1 = cur_xhc_devs.find(guid);
 				if (dev1 == cur_xhc_devs.end()) {
 					CXhcDevice device;
 
 					device.typeof(cur_dev->product_id);
-					if (path.find("&col01") != std::string::npos) {
+					if (path.find("&Col01") != std::string::npos) {
 						device.devin(path);
 					}
-					else if (path.find("&col02") != std::string::npos) {
+					else if (path.find("&Col02") != std::string::npos) {
 						device.devout(path);
 					}
 					cur_xhc_devs.emplace(guid, device);
 				}
 				else {
-					if (path.find("&col01") != std::string::npos) {
+					if (path.find("&Col01") != std::string::npos) {
 						dev1->second.devin(path);
 					}
-					else if (path.find("&col02") != std::string::npos) {
+					else if (path.find("&Col02") != std::string::npos) {
 						dev1->second.devout(path);
 					}
 				}
@@ -483,24 +565,24 @@ void CXhcMpg::rescan()
 			if (std::regex_search(path, match, re) && match.size()) {
 				std::string guid = match[1].str() + match[2].str() + match[3].str();
 
-				auto& dev1 = cur_xhc_devs.find(guid);
+				const auto& dev1 = cur_xhc_devs.find(guid);
 				if (dev1 == cur_xhc_devs.end()) {
 					CXhcDevice device;
 
 					device.typeof(cur_dev->product_id);
-					if (path.find("&col01") != std::string::npos) {
+					if (path.find("&Col01") != std::string::npos) {
 						device.devin(path);
 					}
-					else if (path.find("&col02") != std::string::npos) {
+					else if (path.find("&Col02") != std::string::npos) {
 						device.devout(path);
 					}
 					cur_xhc_devs.emplace(guid, device);
 				}
 				else {
-					if (path.find("&col01") != std::string::npos) {
+					if (path.find("&Col01") != std::string::npos) {
 						dev1->second.devin(path);
 					}
-					else if (path.find("&col02") != std::string::npos) {
+					else if (path.find("&Col02") != std::string::npos) {
 						dev1->second.devout(path);
 					}
 				}
@@ -518,11 +600,11 @@ void CXhcMpg::rescan()
 		if (d == m_devs.end()) {
 			switch (dev.typeof()) {
 			case WHB03_PID:
-				m_devs.emplace(guid, new CXhcHB03Agent(dev, this));
+				m_devs.emplace(guid, std::make_unique<CXhcHB03Agent>(dev, this));
 				list_changed = true;
 				break;
 			case WHB04_PID:
-				m_devs.emplace(guid, new CXhcHB04Agent(dev, this));
+				m_devs.emplace(guid, std::make_unique<CXhcHB04Agent>(dev, this));
 				list_changed = true;
 				break;
 			}
@@ -530,7 +612,6 @@ void CXhcMpg::rescan()
 		else {
 			if (d->second->finished()) {
 				d->second->stop();
-				delete d->second;
 				m_devs.erase(d);
 				switch (dev.typeof()) {
 				case WHB03_PID:
@@ -546,19 +627,14 @@ void CXhcMpg::rescan()
 		}
 	}
 
-	auto& d = m_devs.begin();
-	while (d != m_devs.end()) {
-		if (cur_xhc_devs.find(d->first) == cur_xhc_devs.end()) {
-			auto d1 = d;
-			d1++;
-			d->second->stop();
-			delete d->second;
-			m_devs.erase(d);
+	for (auto dit = m_devs.begin(); dit != m_devs.end(); ) {
+		if (cur_xhc_devs.find(dit->first) == cur_xhc_devs.end()) {
+			dit->second->stop();
+			m_devs.erase(dit);
 			list_changed = true;
-			d = d1;
 		}
 		else
-			d++;
+			dit++;
 	}
 
 	if (list_changed) {
@@ -597,7 +673,8 @@ std::list<std::wstring> CXhcMpg::devices()
 	return list;
 }
 
-CXhcDeviceAgent::CXhcDeviceAgent(const CXhcDevice& device, CXhcDeviceEventReceiver *receiver) : m_device(device), m_receiver(receiver)
+CXhcDeviceAgent::CXhcDeviceAgent(const CXhcDevice& device, CXhcDeviceEventReceiver* receiver) : m_device(device), m_receiver(receiver),
+m_state_sem{ 0 }
 {
 	m_finished = false;
 	m_cancelled = false;
@@ -610,7 +687,9 @@ CXhcDeviceAgent::CXhcDeviceAgent(const CXhcDevice& device, CXhcDeviceEventReceiv
 	}
 	m_day = day;
 	m_wheel_mode = WHEEL_OFF;
-	m_worker = std::thread(Fagent, this);
+	m_worker = std::thread([this]() {
+		Run();
+	});
 }
 
 #define _defract(c) { (uint16_t) abs(c), (uint8_t) (((uint8_t) abs((c - (long)c)*100.0)) | (c < 0 ? 0x80 : 0))}
@@ -621,7 +700,7 @@ void CXhcDeviceAgent::update(const CM4otionState& s)
 	std::lock_guard<std::mutex> lock(m_state_mutex);
 	m_state_queue.push_back(s);
 
-	m_state_sem.notify();
+	m_state_sem.release();
 }
 
 int CXhcDeviceAgent::Run()
@@ -634,7 +713,7 @@ int CXhcDeviceAgent::Run()
 			if (!getEvent(hin, 50))
 				break;
 
-			if (m_state_sem.try_wait()) {
+			if (m_state_sem.try_acquire()) {
 				std::lock_guard<std::mutex> lock(m_state_mutex);
 
 				for (auto const& state : m_state_queue) {
@@ -768,9 +847,9 @@ bool CXhcHB03Agent::getEvent(void *handle, unsigned int timeout_ms)
 	if (rc == packet_len) {
 		whb0x_in_data *pkt = (whb0x_in_data *)packet;
 		if (pkt->id == 4 && pkt->xor_day == (m_day ^ pkt->btn_1)) {
-			CXhcDeviceEvent event;
+			std::unique_ptr<CXhcDeviceEvent> pevent = std::make_unique<CXhcDeviceEvent>();
 
-			event.nameof(m_device.devin());
+			pevent->nameof(m_device.devin());
 
 			switch (pkt->wheel_mode) {
 			case 0x11:
@@ -797,94 +876,96 @@ bool CXhcHB03Agent::getEvent(void *handle, unsigned int timeout_ms)
 
 			switch (pkt->btn_1) {
 			case 0x17:
-				event.eventof(btnYes);
+				pevent->eventof(btnYes);
 				break;
 			case 0x16:
-				event.eventof(btnNo);
+				pevent->eventof(btnNo);
 				break;
 			case 0x01:
-				event.eventof(btnStop);
+				pevent->eventof(btnStop);
 				break;
 			case 0x02:
-				event.eventof(btnStartPause);
+				pevent->eventof(btnStartPause);
 				break;
 			case 0x03:
-				event.eventof(btnRewind);
+				pevent->eventof(btnRewind);
 				break;
 			case 0x04:
-				event.eventof(btnProbeZ);
+				pevent->eventof(btnProbeZ);
 				break;
 			case 0x0c:
-				event.eventof(btnGotoZero);
+				pevent->eventof(btnGotoZero);
 				break;
 			case 0x06:
-				event.eventof(btnXDiv2);
+				pevent->eventof(btnXDiv2);
 				break;
 			case 0x07:
-				event.eventof(btnYDiv2);
+				pevent->eventof(btnYDiv2);
 				break;
 			case 0x08:
-				event.eventof(btnSafeZ);
+				pevent->eventof(btnSafeZ);
 				break;
 			case 0x09:
-				event.eventof(btnZeroX);
+				pevent->eventof(btnZeroX);
 				break;
 			case 0x0a:
-				event.eventof(btnZeroY);
+				pevent->eventof(btnZeroY);
 				break;
 			case 0x0b:
-				event.eventof(btnZeroZ);
+				pevent->eventof(btnZeroZ);
 				break;
 			case 0x05:
-				event.eventof(btnGotoHome);
+				pevent->eventof(btnGotoHome);
 				break;
 			case 0x0d:
-				event.eventof(btnStepLeft);
+				pevent->eventof(btnStepLeft);
 				break;
 			case 0x0e:
-				event.eventof(btnStepRight);
+				pevent->eventof(btnStepRight);
 				break;
 			case 0x0f:
-				event.eventof(btnFineXYZ);
+				pevent->eventof(btnFineXYZ);
 				break;
 			case 0x10:
-				event.eventof(btnSpindle);
+				pevent->eventof(btnSpindle);
 				break;
 			}
 			// send button event if happened
-			if (event.eventof()) {
+			if (pevent->eventof()) {
 				if (m_receiver) {
-					m_receiver->xhcEvent(event);
+					m_receiver->xhcEvent(std::move(pevent));
 				}
-				event.eventof(nop);
+				pevent = std::make_unique<CXhcDeviceEvent>();
+
+				pevent->nameof(m_device.devin());
 			}
 
 			if (pkt->wheel) {
-				event.valueof(pkt->wheel);
+				pevent->valueof(pkt->wheel);
 				switch (pkt->wheel_mode) {
 				case 0x11:
-					event.eventof(adjustX);
+					pevent->eventof(adjustX);
 					break;
 				case 0x12:
-					event.eventof(adjustY);
+					pevent->eventof(adjustY);
 					break;
 				case 0x13:
-					event.eventof(adjustZ);
+					pevent->eventof(adjustZ);
 					break;
 				case 0x14:
-					event.eventof(adjustFeedRate);
+					pevent->eventof(adjustFeedRate);
 					break;
 				case 0x15:
-					event.eventof(adjustSpindleSpeed);
+					pevent->eventof(adjustSpindleSpeed);
 					break;
 				case 0x18:
-					event.eventof(adjustProcessingSpeed);
+					pevent->eventof(adjustProcessingSpeed);
 					break;
 				}
 				// send wheel event if happened
-				if (event.eventof()) {
+				if (pevent->eventof()) {
 					if (m_receiver) {
-						m_receiver->xhcEvent(event);
+						m_receiver->xhcEvent(std::move(pevent));
 					}
 				}
 			}
@@ -982,9 +1063,9 @@ bool CXhcHB04Agent::getEvent(void *handle, unsigned int timeout_ms)
 	if (rc == packet_len) {
 		whb0x_in_data *pkt = (whb0x_in_data *)packet;
 		if (pkt->id == 4 && pkt->xor_day == (m_day ^ pkt->btn_1)) {
-			CXhcDeviceEvent event;
+			std::unique_ptr<CXhcDeviceEvent> pevent = std::make_unique<CXhcDeviceEvent>();
 
-			event.nameof(m_device.devin());
+			pevent->nameof(m_device.devin());
 
 			switch (pkt->wheel_mode) {
 			case 0x11:
@@ -1011,114 +1092,114 @@ bool CXhcHB04Agent::getEvent(void *handle, unsigned int timeout_ms)
 
 			switch (pkt->btn_1) {
 			case 0x17:
-				event.eventof(btnReset);
+				pevent->eventof(btnReset);
 				break;
 			case 0x16:
-				event.eventof(btnStop);
+				pevent->eventof(btnStop);
 				break;
 			case 0x01:
-				event.eventof(btnGotoZero);
+				pevent->eventof(btnGotoZero);
 				break;
 			case 0x02:
-				event.eventof(btnStartPause);
+				pevent->eventof(btnStartPause);
 				break;
 			case 0x03:
-				event.eventof(btnRewind);
+				pevent->eventof(btnRewind);
 				break;
 			case 0x04:
-				event.eventof(btnProbeZ);
+				pevent->eventof(btnProbeZ);
 				break;
 			case 0x0c:
-				event.eventof(btnSpindle);
+				pevent->eventof(btnSpindle);
 				break;
 			case 0x06:
 				switch (pkt->wheel_mode) {
 				case 0x11:
-					event.eventof(btnXDiv2);
+					pevent->eventof(btnXDiv2);
 					break;
 				case 0x12:
-					event.eventof(btnYDiv2);
+					pevent->eventof(btnYDiv2);
 					break;
 				case 0x13:
-					event.eventof(btnZDiv2);
+					pevent->eventof(btnZDiv2);
 					break;
 				}
 				break;
 			case 0x07:
 				switch (pkt->wheel_mode) {
 				case 0x11:
-					event.eventof(btnZeroX);
+					pevent->eventof(btnZeroX);
 					break;
 				case 0x12:
-					event.eventof(btnZeroY);
+					pevent->eventof(btnZeroY);
 					break;
 				case 0x13:
-					event.eventof(btnZeroZ);
+					pevent->eventof(btnZeroZ);
 					break;
 				}
 				break;
 			case 0x08:
-				event.eventof(btnSafeZ);
+				pevent->eventof(btnSafeZ);
 				break;
 			case 0x09:
-				event.eventof(btnGotoHome);
+				pevent->eventof(btnGotoHome);
 				break;
 			case 0x0a:
-				event.eventof(btnMacro1);
+				pevent->eventof(btnMacro1);
 				break;
 			case 0x0b:
-				event.eventof(btnMacro2);
+				pevent->eventof(btnMacro2);
 				break;
 			case 0x05:
-				event.eventof(btnMacro3);
+				pevent->eventof(btnMacro3);
 				break;
 			case 0x0d:
-				event.eventof(btnStepPlusPlus);
+				pevent->eventof(btnStepPlusPlus);
 				break;
 			case 0x0e:
-				event.eventof(btnMpgMode);
+				pevent->eventof(btnMpgMode);
 				break;
 			case 0x0f:
-				event.eventof(btnMacro6);
+				pevent->eventof(btnMacro6);
 				break;
 			case 0x10:
-				event.eventof(btnMacro7);
+				pevent->eventof(btnMacro7);
 				break;
 			}
 			// send button event if happened
-			if (event.eventof()) {
+			if (pevent->eventof()) {
 				if (m_receiver) {
-					m_receiver->xhcEvent(event);
+					m_receiver->xhcEvent(std::move(pevent));
 				}
-				event.eventof(nop);
+				pevent->eventof(nop);
 			}
 
 			if (pkt->wheel) {
-				event.valueof(pkt->wheel);
+				pevent->valueof(pkt->wheel);
 				switch (pkt->wheel_mode) {
 				case 0x11:
-					event.eventof(adjustX);
+					pevent->eventof(adjustX);
 					break;
 				case 0x12:
-					event.eventof(adjustY);
+					pevent->eventof(adjustY);
 					break;
 				case 0x13:
-					event.eventof(adjustZ);
+					pevent->eventof(adjustZ);
 					break;
 				case 0x14:
-					event.eventof(adjustFeedRate);
+					pevent->eventof(adjustFeedRate);
 					break;
 				case 0x15:
-					event.eventof(adjustSpindleSpeed);
+					pevent->eventof(adjustSpindleSpeed);
 					break;
 				case 0x18:
-					event.eventof(adjustA);
+					pevent->eventof(adjustA);
 					break;
 				}
 				// send wheel event if happened
-				if (event.eventof()) {
+				if (pevent->eventof()) {
 					if (m_receiver) {
-						m_receiver->xhcEvent(event);
+						m_receiver->xhcEvent(std::move(pevent));
 					}
 				}
 			}

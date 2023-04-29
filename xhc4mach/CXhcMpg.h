@@ -3,7 +3,7 @@
 #include <windows.h>
 #include <thread>
 #include <mutex>
-#include "sema.h"
+#include <semaphore>
 #include <map>
 #include <list>
 #include <string>
@@ -98,6 +98,8 @@ public:
 	void valueof(int value) { m_value = value; }
 	// getter
 	int valueof() const { return m_value; }
+
+	virtual ~CXhcDeviceEvent() { }
 protected:
 private:
 	std::string m_dev_name;
@@ -128,9 +130,9 @@ class CM4otionState {
 public:
 	CM4otionState() {
 		m_mc_valid = false;
-		m_mc[4] = (0, 0, 0, 0);
+		std::fill(m_mc, m_mc + (std::end(m_mc) - std::begin(m_mc)), 0.0);
 		m_wc_valid = false;
-		m_wc[4] = (0, 0, 0, 0);
+		std::fill(m_wc, m_wc + (std::end(m_wc) - std::begin(m_wc)), 0.0);
 
 		m_feedrate_ovr_valid = false;
 		m_feedrate_ovr = 0;
@@ -374,15 +376,12 @@ private:
 // interface definition for XHC event handler
 class CXhcDeviceEventReceiver {
 public:
-	virtual void xhcEvent(const CXhcDeviceEvent& event) = 0;
+	virtual void xhcEvent(std::unique_ptr<CXhcDeviceEvent> pevent) = 0;
 };
 
 // this class is doing real work with USB device
 // code is working in separate thread!
 class CXhcDeviceAgent {
-	friend void Fagent(CXhcDeviceAgent* a) {
-		a->Run();
-	}
 public:
 	// copy all parameter for managed device and run controlling code in separate thread
 	// send device events to caller provided receiver handler
@@ -431,7 +430,7 @@ private:
 	volatile bool m_finished;
 	volatile bool m_cancelled;
 
-	semaphore m_state_sem;
+	std::binary_semaphore m_state_sem;
 	std::mutex m_state_mutex;
 	std::list<CM4otionState> m_state_queue;
 
@@ -461,9 +460,6 @@ private:
 // it is also works in separated thread
 class CXhcMpg : public CXhcDeviceEventReceiver
 {
-	friend void Magent(CXhcMpg* a) {
-		a->run();
-	}
 public:
 
 	// initialize class variables
@@ -494,23 +490,23 @@ public:
 	CM4otionState state() const;
 protected:
 	// xhc event handles (from managed usb devices)
-	void xhcEvent(const CXhcDeviceEvent& event) override;
+	void xhcEvent(std::unique_ptr<CXhcDeviceEvent> pevent) override;
 
 private:
 	// optional WND HANDLER to send some UI notification
 	HWND m_hParent;
 	// Mach 4 IPC handle
-	int m_ipc;
+	MINSTANCE m_ipc;
 
 	// thread safety for list of managed xhc devices
 	std::mutex m_dev_mutex;
 	// list of xhc devices
-	std::map<std::string, CXhcDeviceAgent*> m_devs;
+	std::map<std::string, std::unique_ptr<CXhcDeviceAgent>> m_devs;
 
 	// thread safety for list of xhc events
 	std::mutex m_event_mutex;
 	// list of xhc events (from all pluged usb xhc devices)
-	std::list<CXhcDeviceEvent> m_events;
+	std::list<std::unique_ptr<CXhcDeviceEvent>> m_events;
 
 	// yes, it is worker
 	std::thread m_worker;
@@ -521,7 +517,7 @@ private:
 	bool m_opened;
 
 	// semaphore to wait events from xhc devices
-	semaphore m_semaphore;
+	std::binary_semaphore m_semaphore;
 
 	// current state of Mach4
 	CM4otionState m_state;
@@ -553,7 +549,7 @@ private:
 	bool isJogCont();
 
 	// send jog signal to MACH4 using IPC
-	void jogStart(double x, double y, double z, double a);
+	void jogMove(double x, double y, double z, double a);
 	// send jog stop signal to MACH 4
 	void jogStop(bool force, long long ms);
 
@@ -577,8 +573,11 @@ private:
 	decltype(mcCntlRewindFile)* f_mcCntlRewindFile;
 	decltype(mcIpcCleanup)* f_mcIpcCleanup;
 	decltype(mcJogIncStart)* f_mcJogIncStart;
+	decltype(mcJogIncStop)* f_mcJogIncStop;
 	decltype(mcJogVelocityStart)* f_mcJogVelocityStart;
 	decltype(mcJogVelocityStop)* f_mcJogVelocityStop;
+	decltype(mcJogIsJogging)* f_mcJogIsJogging;
+	decltype(mcJogGetInc)* f_mcJogGetInc;
 	decltype(mcScriptExecutePrivate)* f_mcScriptExecutePrivate;
 	decltype(mcSignalGetHandle)* f_mcSignalGetHandle;
 	decltype(mcSignalGetState)* f_mcSignalGetState;

@@ -30,7 +30,7 @@ protected:
 	// Generated message map functions
 	virtual BOOL OnInitDialog();
 	afx_msg void OnPaint();
-	afx_msg BOOL OnDeviceChange(UINT nEventType, DWORD dwData);
+	afx_msg BOOL OnDeviceChange(UINT nEventType, DWORD_PTR dwData);
 	afx_msg HCURSOR OnQueryDragIcon();
 	afx_msg LRESULT OnMpgListChanged(WPARAM wParam, LPARAM lParam);
 	afx_msg LRESULT OnMpgStateChanged(WPARAM wParam, LPARAM lParam);
@@ -54,4 +54,6 @@ public:
 	CEdit m_editWCPosAxisA;
 	afx_msg void OnClickedMach4Connect();
 	afx_msg void OnClickedMach4Disconnect();
+	afx_msg void OnLbnSelchangeXhcList();
+	CListBox m_eventListBox;
 };

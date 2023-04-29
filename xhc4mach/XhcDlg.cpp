@@ -38,6 +38,7 @@ void CXhcMpgDlg::DoDataExchange(CDataExchange* pDX)
 	DDX_Control(pDX, IDC_WC_POS_AXIS_Y, m_editWCPosAxisY);
 	DDX_Control(pDX, IDC_WC_POS_AXIS_X, m_editWCPosAxisX);
 	DDX_Control(pDX, IDC_WC_POS_AXIS_Z, m_editWCPosAxisZ);
+	DDX_Control(pDX, IDC_EVENT_LIST, m_eventListBox);
 }
 
 BEGIN_MESSAGE_MAP(CXhcMpgDlg, CDialogEx)
@@ -49,6 +50,7 @@ BEGIN_MESSAGE_MAP(CXhcMpgDlg, CDialogEx)
 	ON_MESSAGE(WM_MPG_MACH4_STATUS, OnMpgMach4Status)
 	ON_BN_CLICKED(IDC_MACH4_CONNECT, &CXhcMpgDlg::OnClickedMach4Connect)
 	ON_BN_CLICKED(IDC_MACH4_DISCONNECT, &CXhcMpgDlg::OnClickedMach4Disconnect)
+	ON_LBN_SELCHANGE(IDC_XHC_LIST, &CXhcMpgDlg::OnLbnSelchangeXhcList)
 END_MESSAGE_MAP()
 
 
@@ -86,7 +88,7 @@ BOOL CXhcMpgDlg::OnInitDialog()
 	return TRUE;  // return TRUE  unless you set the focus to a control
 }
 
-BOOL CXhcMpgDlg::OnDeviceChange(UINT nEventType, DWORD dwData)
+BOOL CXhcMpgDlg::OnDeviceChange(UINT nEventType, DWORD_PTR dwData)
 {
 	BOOL bReturn = CWnd::OnDeviceChange(nEventType, dwData);
 
@@ -235,4 +237,10 @@ void CXhcMpgDlg::OnClickedMach4Connect()
 void CXhcMpgDlg::OnClickedMach4Disconnect()
 {
 	m_mpg.close();
+}
+
+
+void CXhcMpgDlg::OnLbnSelchangeXhcList()
+{
+	// TODO: Add your control notification handler code here
 }

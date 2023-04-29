@@ -15,6 +15,7 @@
 #define MC_MAX_AXIS_MOTORS 4
 #define MAX_MAPPED_SIGNAL 32
 
+#ifdef _WIN64
 // handlers
 typedef uint32_t MINSTANCE;
 typedef uint32_t HMINSTANCE;
@@ -25,6 +26,74 @@ typedef uint32_t HMCIO;
 typedef uint32_t HMCREG;
 
 typedef uint32_t mcState;
+#else
+// handlers
+typedef uint32_t MINSTANCE;
+typedef uint32_t HMINSTANCE;
+typedef uint32_t HMCVARS;
+typedef uint32_t HMCDEV;
+typedef uint32_t HMCSIG;
+typedef uint32_t HMCIO;
+typedef uint32_t HMCREG;
+
+typedef uint32_t mcState;
+#endif
+
+#define MERROR_NOERROR 0
+#define MERROR_INVALID_INSTANCE -1
+#define MERROR_INVALID_ARG -2
+#define MERROR_INVALID_DIR -3
+#define MERROR_INVALID_PROFILE -4
+#define MERROR_FILE_EXCEPTION -5
+#define MERROR_FILE_EMPTY -6
+#define MERROR_FILE_SHARING -7
+#define MERROR_FILE_INVALID -8
+#define MERROR_FILE_BADSIZE -9
+#define MERROR_REGEN_DONE -10
+#define MERROR_NODATA -11
+#define MERROR_GRID_ACTIVE -12
+#define MERROR_NOT_IMPLEMENTED -13
+#define MERROR_MOTOR_NOT_FOUND -14
+#define MERROR_INVALID_PARAM -15
+#define MERROR_AXIS_NOT_FOUND -16
+#define MERROR_API_INIT -17
+#define MERROR_NOT_NOW -18
+#define MERROR_NOT_CREATED -19
+#define MERROR_SIGNAL_NOT_FOUND -20
+#define MERROR_IO_NOT_FOUND -21
+#define MERROR_SPIN_RANGE_NOT_FOUND -22
+#define MERROR_PLUGIN_NOT_FOUND -23
+#define MERROR_DEVICE_NOT_FOUND -24
+#define MERROR_INVALID_STATE -25
+#define MERROR_AXIS_NOT_ENABLED -26
+#define MERROR_REG_NOT_FOUND -27
+#define MERROR_IPC_NOT_READY -28
+#define MERROR_NO_ROOM_AVALABLE -29
+#define MERROR_NOT_COMPILED -30
+#define MERROR_NOT_ENABLED -31
+#define MERROR_SCRIPT_KILLED -32
+#define MERROR_FILE_NOT_FOUND -33
+#define MERROR_LIC_FEATURE_NOT_FOUND -34
+#define MERROR_LIC_REQUIREMENT_NOT_FOUND -35
+#define MERROR_LIC_EXPIRED -36
+#define MERROR_LIC_BAD_ID -37
+#define MERROR_LIC_BAD_KEY -38
+#define MERROR_TOOLPATH_NOT_FOUND -39
+#define MERROR_TIMED_OUT -40
+#define MERROR_SOFTLIMITS -41
+#define MERROR_FILE_BADFORMAT -42
+#define MERROR_INVALID_TYPE -43
+#define MERROR_TLM_ALLOC_FAILED -44
+#define MERROR_TLM_TOOL_UNMANAGED -45
+#define MERROR_TLM_GROUP_EXPIRED -46
+#define MERROR_TLM_GROUP_NOT_FOUND -47
+#define MERROR_TLM_GROUP_ADDED -48
+#define MERROR_TLM_GROUP_CHANGED -49
+#define MERROR_TLM_TOOL_NOT_FOUND -50
+#define MERROR_TLM_TOOL_ADDED -51
+#define MERROR_TLM_TOOL_CHANGED -52
+#define MERROR_TLM_TOOL_EXPIRED -53
+#define MERROR_WIN_NOT_FOUND -54
 
 #ifdef __cplusplus
 extern "C" {
@@ -1269,6 +1338,10 @@ extern "C" {
 		int axisId,
 		double *percent) DUMMY_BODY_RINT;
 
+	M4IAPI int MACH_ENTRY mcJogGetInc(
+		MINSTANCE mInst,
+		int axisId,
+		double* increment) DUMMY_BODY_RINT;
 
 	// ---- mcJogGetTraceEnable ----
 	/* mcJogGetTraceEnable */
@@ -1377,6 +1450,12 @@ extern "C" {
 
 	// ---- mcMotionSetCVAngleEnable ----
 	/* mcMotionSetCVAngleEnable */
+
+	// ---- mcMotionGetIncPos ----
+	M4IAPI int MACH_ENTRY mcMotionGetIncPos(
+		MINSTANCE mInst,
+		int motorId,
+		double* val) DUMMY_BODY_RINT;
 
 	// ---- mcMotionSync ----
 	M4IAPI int MACH_ENTRY mcMotionSync(
