@@ -686,7 +686,7 @@ m_state_sem{ 0 }
 		day = t.tm_mday;
 	}
 	m_day = day;
-	m_wheel_mode = WHEEL_OFF;
+	m_wheel_axis = WHEEL_OFF;
 	m_worker = std::thread([this]() {
 		Run();
 	});
@@ -743,10 +743,10 @@ bool CXhcHB03Agent::updateDisplay(void *handle)
 		WHBxx_MAGIC,
 		m_day,
 		{
-			_defract(((m_wheel_mode == WHEEL_A) ? m_state.wc(AXIS_A) : m_state.wc(AXIS_X))),
+			_defract(((m_wheel_axis == WHEEL_A) ? m_state.wc(AXIS_A) : m_state.wc(AXIS_X))),
 			_defract(m_state.wc(AXIS_Y)),
 			_defract(m_state.wc(AXIS_Z)),
-			_defract(((m_wheel_mode == WHEEL_A) ? m_state.mc(AXIS_A) : m_state.mc(AXIS_X))),
+			_defract(((m_wheel_axis == WHEEL_A) ? m_state.mc(AXIS_A) : m_state.mc(AXIS_X))),
 			_defract(m_state.mc(AXIS_Y)),
 			_defract(m_state.mc(AXIS_Z))
 		},
@@ -763,10 +763,10 @@ bool CXhcHB03Agent::updateDisplay(void *handle)
 		WHBxx_MAGIC,
 		m_day,
 		{
-			_defract2(((m_wheel_mode == WHEEL_A) ? m_state.wc(AXIS_A) : m_state.wc(AXIS_X))),
+			_defract2(((m_wheel_axis == WHEEL_A) ? m_state.wc(AXIS_A) : m_state.wc(AXIS_X))),
 			_defract2(m_state.wc(AXIS_Y)),
 			_defract2(m_state.wc(AXIS_Z)),
-			_defract2(((m_wheel_mode == WHEEL_A) ? m_state.mc(AXIS_A) : m_state.mc(AXIS_X))),
+			_defract2(((m_wheel_axis == WHEEL_A) ? m_state.mc(AXIS_A) : m_state.mc(AXIS_X))),
 			_defract2(m_state.mc(AXIS_Y)),
 			_defract2(m_state.mc(AXIS_Z))
 		},
@@ -851,27 +851,27 @@ bool CXhcHB03Agent::getEvent(void *handle, unsigned int timeout_ms)
 
 			pevent->nameof(m_device.devin());
 
-			switch (pkt->wheel_mode) {
+			switch (pkt->axis) {
 			case 0x11:
-				m_wheel_mode = WHEEL_X;
+				m_wheel_axis = WHEEL_X;
 				break;
 			case 0x12:
-				m_wheel_mode = WHEEL_Y;
+				m_wheel_axis = WHEEL_Y;
 				break;
 			case 0x13:
-				m_wheel_mode = WHEEL_Z;
+				m_wheel_axis = WHEEL_Z;
 				break;
 			case 0x14:
-				m_wheel_mode = WHEEL_FEED;
+				m_wheel_axis = WHEEL_FEED;
 				break;
 			case 0x15:
-				m_wheel_mode = WHEEL_SPINDLE;
+				m_wheel_axis = WHEEL_SPINDLE;
 				break;
 			case 0x18:
-				m_wheel_mode = WHEEL_A;
+				m_wheel_axis = WHEEL_A;
 				break;
 			default:
-				m_wheel_mode = WHEEL_OFF;
+				m_wheel_axis = WHEEL_OFF;
 			}
 
 			switch (pkt->btn_1) {
@@ -940,9 +940,9 @@ bool CXhcHB03Agent::getEvent(void *handle, unsigned int timeout_ms)
 				pevent->nameof(m_device.devin());
 			}
 
-			if (pkt->wheel) {
-				pevent->valueof(pkt->wheel);
-				switch (pkt->wheel_mode) {
+			if (pkt->jog_counts) {
+				pevent->valueof(pkt->jog_counts);
+				switch (pkt->axis) {
 				case 0x11:
 					pevent->eventof(adjustX);
 					break;
@@ -980,10 +980,10 @@ bool CXhcHB04Agent::updateDisplay(void *handle)
 		WHBxx_MAGIC,
 		m_day,
 		{
-			_defract2(((m_wheel_mode == WHEEL_A) ? m_state.wc(AXIS_A) : m_state.wc(AXIS_X))),
+			_defract2(((m_wheel_axis == WHEEL_A) ? m_state.wc(AXIS_A) : m_state.wc(AXIS_X))),
 			_defract2(m_state.wc(AXIS_Y)),
 			_defract2(m_state.wc(AXIS_Z)),
-			_defract2(((m_wheel_mode == WHEEL_A) ? m_state.mc(AXIS_A) : m_state.mc(AXIS_X))),
+			_defract2(((m_wheel_axis == WHEEL_A) ? m_state.mc(AXIS_A) : m_state.mc(AXIS_X))),
 			_defract2(m_state.mc(AXIS_Y)),
 			_defract2(m_state.mc(AXIS_Z))
 		},
@@ -1067,27 +1067,27 @@ bool CXhcHB04Agent::getEvent(void *handle, unsigned int timeout_ms)
 
 			pevent->nameof(m_device.devin());
 
-			switch (pkt->wheel_mode) {
+			switch (pkt->axis) {
 			case 0x11:
-				m_wheel_mode = WHEEL_X;
+				m_wheel_axis = WHEEL_X;
 				break;
 			case 0x12:
-				m_wheel_mode = WHEEL_Y;
+				m_wheel_axis = WHEEL_Y;
 				break;
 			case 0x13:
-				m_wheel_mode = WHEEL_Z;
+				m_wheel_axis = WHEEL_Z;
 				break;
 			case 0x14:
-				m_wheel_mode = WHEEL_FEED;
+				m_wheel_axis = WHEEL_FEED;
 				break;
 			case 0x15:
-				m_wheel_mode = WHEEL_SPINDLE;
+				m_wheel_axis = WHEEL_SPINDLE;
 				break;
 			case 0x18:
-				m_wheel_mode = WHEEL_A;
+				m_wheel_axis = WHEEL_A;
 				break;
 			default:
-				m_wheel_mode = WHEEL_OFF;
+				m_wheel_axis = WHEEL_OFF;
 			}
 
 			switch (pkt->btn_1) {
@@ -1113,7 +1113,7 @@ bool CXhcHB04Agent::getEvent(void *handle, unsigned int timeout_ms)
 				pevent->eventof(btnSpindle);
 				break;
 			case 0x06:
-				switch (pkt->wheel_mode) {
+				switch (pkt->axis) {
 				case 0x11:
 					pevent->eventof(btnXDiv2);
 					break;
@@ -1126,7 +1126,7 @@ bool CXhcHB04Agent::getEvent(void *handle, unsigned int timeout_ms)
 				}
 				break;
 			case 0x07:
-				switch (pkt->wheel_mode) {
+				switch (pkt->axis) {
 				case 0x11:
 					pevent->eventof(btnZeroX);
 					break;
@@ -1174,9 +1174,9 @@ bool CXhcHB04Agent::getEvent(void *handle, unsigned int timeout_ms)
 				pevent->eventof(nop);
 			}
 
-			if (pkt->wheel) {
-				pevent->valueof(pkt->wheel);
-				switch (pkt->wheel_mode) {
+			if (pkt->jog_counts) {
+				pevent->valueof(pkt->jog_counts);
+				switch (pkt->axis) {
 				case 0x11:
 					pevent->eventof(adjustX);
 					break;

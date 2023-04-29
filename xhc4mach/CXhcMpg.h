@@ -408,7 +408,7 @@ protected:
 	// device state
 	unsigned char m_day;
 	CM4otionState m_state;
-	XHC_WHEEL_MODE m_wheel_mode;
+	XHC_WHEEL_MODE m_wheel_axis;
 	//
 	CXhcDeviceEventReceiver *m_receiver;
 	// managed device properties

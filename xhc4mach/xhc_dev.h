@@ -136,8 +136,8 @@ struct whb0x_in_data
 	uint8_t		id;
 	uint8_t		btn_1;
 	uint8_t		btn_2;
-	uint8_t		wheel_mode;
-	int8_t		wheel;
+	uint8_t		axis;
+	int8_t		jog_counts;
 	uint8_t		xor_day;
 };
 
@@ -149,8 +149,8 @@ struct whb04b6_in_data
 	uint8_t		btn_1;
 	uint8_t		btn_2;
 	uint8_t		feed_mode;
-	uint8_t		wheel_mode;
-	int8_t		wheel;
+	uint8_t		axis;
+	int8_t		jog_counts;
 	uint8_t		checksum;
 };
 
