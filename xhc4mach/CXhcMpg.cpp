@@ -630,7 +630,7 @@ void CXhcMpg::rescan()
 	for (auto dit = m_devs.begin(); dit != m_devs.end(); ) {
 		if (cur_xhc_devs.find(dit->first) == cur_xhc_devs.end()) {
 			dit->second->stop();
-			m_devs.erase(dit);
+			dit = m_devs.erase(dit);
 			list_changed = true;
 		}
 		else
