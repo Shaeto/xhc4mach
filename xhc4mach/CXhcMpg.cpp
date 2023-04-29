@@ -1,6 +1,7 @@
 #include "stdafx.h"
 #include "CXhcMpg.h"
 #include <regex>
+#include <vector>
 
 extern "C" {
 #include <hidapi.h>
@@ -270,15 +271,15 @@ void CXhcMpg::jogMove(double x, double y, double z, double a)
 			m_jog_timer[AXIS_X] = time_to_stop;
 		}
 		if (y != 0) {
-			f_mcJogIncStart(m_ipc, AXIS_Y, y);
+			inc_vector[1] = _inc_move(AXIS_Y, y);
 			m_jog_timer[AXIS_Y] = time_to_stop;
 		}
 		if (z != 0) {
-			f_mcJogIncStart(m_ipc, AXIS_Z, z);
+			inc_vector[2] = _inc_move(AXIS_Z, z);
 			m_jog_timer[AXIS_Z] = time_to_stop;
 		}
 		if (a != 0) {
-			f_mcJogIncStart(m_ipc, AXIS_A, a);
+			inc_vector[3] = _inc_move(AXIS_A, a);
 			m_jog_timer[AXIS_A] = time_to_stop;
 		}
 	}
@@ -286,20 +287,31 @@ void CXhcMpg::jogMove(double x, double y, double z, double a)
 		// TODO:
 		// mcJogSetRate(m_ipc, X_AXIS, ????)
 		// mcJogSetAccel ???
+
+		auto _cont_move = [this, _increment = 0.0, _is_jogging = FALSE](int axisid, double v) mutable
+		{
+			if (f_mcJogIsJogging(m_ipc, axisid, &_is_jogging) != MERROR_NOERROR)
+				return 0.0;
+
+			f_mcJogVelocityStart(m_ipc, axisid, v > 0.0 ? MC_JOG_POS : MC_JOG_NEG);
+
+			return v;
+		};
+
 		if (x != 0) {
-			f_mcJogVelocityStart(m_ipc, AXIS_X, x > 0.0 ? MC_JOG_POS : MC_JOG_NEG);
+			_cont_move(AXIS_X, x);
 			m_jog_timer[AXIS_X] = time_to_stop;
 		}
 		if (y != 0) {
-			f_mcJogVelocityStart(m_ipc, AXIS_Y, y > 0.0 ? MC_JOG_POS : MC_JOG_NEG);
+			_cont_move(AXIS_Y, y);
 			m_jog_timer[AXIS_Y] = time_to_stop;
 		}
 		if (z != 0) {
-			f_mcJogVelocityStart(m_ipc, AXIS_Z, z > 0.0 ? MC_JOG_POS : MC_JOG_NEG);
+			_cont_move(AXIS_Z, z);
 			m_jog_timer[AXIS_Z] = time_to_stop;
 		}
 		if (a != 0) {
-			f_mcJogVelocityStart(m_ipc, AXIS_A, a > 0.0 ? MC_JOG_POS : MC_JOG_NEG);
+			_cont_move(AXIS_A, a);
 			m_jog_timer[AXIS_A] = time_to_stop;
 		}
 	}
@@ -1064,7 +1076,6 @@ bool CXhcHB04Agent::getEvent(void *handle, unsigned int timeout_ms)
 		whb0x_in_data *pkt = (whb0x_in_data *)packet;
 		if (pkt->id == 4 && pkt->xor_day == (m_day ^ pkt->btn_1)) {
 			std::unique_ptr<CXhcDeviceEvent> pevent = std::make_unique<CXhcDeviceEvent>();
-
 			pevent->nameof(m_device.devin());
 
 			switch (pkt->axis) {
@@ -1171,10 +1182,14 @@ bool CXhcHB04Agent::getEvent(void *handle, unsigned int timeout_ms)
 				if (m_receiver) {
 					m_receiver->xhcEvent(std::move(pevent));
 				}
-				pevent->eventof(nop);
 			}
 
 			if (pkt->jog_counts) {
+				if (!pevent) {
+					pevent = std::make_unique<CXhcDeviceEvent>();
+					pevent->nameof(m_device.devin());
+				}
+
 				pevent->valueof(pkt->jog_counts);
 				switch (pkt->axis) {
 				case 0x11:
